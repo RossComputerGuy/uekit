@@ -31,6 +31,18 @@ pub fn deinit(self: *const Mmu) void {
     self.allocator.destroy(self);
 }
 
+pub fn used(self: *const Mmu) usize {
+    var value: usize = 0;
+    for (self.entries.items) |e| {
+        value += e.size;
+    }
+    return value;
+}
+
+pub inline fn free(self: *const Mmu) usize {
+    return self.maxAddress - self.used();
+}
+
 pub fn entry(self: *const Mmu, addr: usize) !?*Entry {
     if (addr > self.maxAddress) return error.OutOfBounds;
 
@@ -41,7 +53,7 @@ pub fn entry(self: *const Mmu, addr: usize) !?*Entry {
 }
 
 pub fn read(self: *const Mmu, offset: usize, buf: []u8) anyerror!usize {
-    if (offset + buf.len >= self.maxAddress) return error.OutOfBounds;
+    if (offset + buf.len > self.maxAddress) return error.OutOfBounds;
 
     if (self.entry(offset) catch null) |e| {
         return e.read(offset - e.address, buf);
@@ -52,7 +64,7 @@ pub fn read(self: *const Mmu, offset: usize, buf: []u8) anyerror!usize {
 }
 
 pub fn write(self: *const Mmu, offset: usize, buf: []const u8) anyerror!usize {
-    if (offset + buf.len >= self.maxAddress) return error.OutOfBounds;
+    if (offset + buf.len > self.maxAddress) return error.OutOfBounds;
 
     if (self.entry(offset) catch null) |e| {
         return e.write(offset - e.address, buf);

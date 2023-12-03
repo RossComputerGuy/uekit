@@ -12,10 +12,10 @@ pub const Options = struct {
 
 base: Entry,
 allocator: Allocator,
-buf: []const u8,
+buf: []u8,
 
 pub fn create(options: Options) !*Entry {
-    const self = try options.allocator.create(Entry);
+    const self = try options.allocator.create(Ram);
     errdefer options.allocator.destroy(self);
 
     self.* = .{
@@ -39,13 +39,13 @@ pub fn create(options: Options) !*Entry {
 
 fn read(ctx: *anyopaque, offset: usize, buf: []u8) !usize {
     const self: *Ram = @ptrCast(@alignCast(ctx));
-    @memcpy(self.buf[offset..(offset + buf.len)], buf);
+    @memcpy(buf, self.buf[offset..(offset + buf.len)]);
     return buf.len;
 }
 
 fn write(ctx: *anyopaque, offset: usize, buf: []const u8) !usize {
     const self: *Ram = @ptrCast(@alignCast(ctx));
-    @memcpy(buf, self.buf[offset..(offset + buf.len)]);
+    @memcpy(self.buf[offset..(offset + buf.len)], buf);
     return buf.len;
 }
 

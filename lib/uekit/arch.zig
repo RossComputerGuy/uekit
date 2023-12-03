@@ -17,6 +17,17 @@ pub const Version = enum {
         }
         unreachable;
     }
+
+    pub fn instructionSize(self: Version) usize {
+        inline for (@typeInfo(Version).Enum.fields) |field| {
+            const fieldValue: Version = @enumFromInt(field.value);
+            if (self == fieldValue) {
+                const archImpl = @field(versions, field.name);
+                return @sizeOf(archImpl.Instruction);
+            }
+        }
+        unreachable;
+    }
 };
 
 pub const Opcode = union(enum) {

@@ -38,8 +38,9 @@ pub fn main() !void {
         .stdin = std.io.getStdIn(),
     }));
 
+    var start: usize = 0;
     if (res.args.exec) |exec| {
-        try emu.mmu.entries.append(try uekit.dwarf.Mmu.Entry.types.file.create(.{
+        const entry = try uekit.dwarf.Mmu.Entry.types.file.create(.{
             .allocator = emu.allocator,
             .address = 0,
             .flags = .{
@@ -47,12 +48,24 @@ pub fn main() !void {
                 .writable = 0,
             },
             .path = exec,
-        }));
+        });
+        try emu.mmu.entries.append(entry);
+        start = entry.size;
     }
+
+    try emu.mmu.entries.append(try uekit.dwarf.Mmu.Entry.types.ram.create(.{
+        .allocator = emu.allocator,
+        .address = start,
+        .size = emu.mmu.free(),
+        .flags = .{
+            .readable = 1,
+            .writable = 1,
+        },
+    }));
 
     emu.run() catch |err| {
         stderr.writer().print("Failed to execute at 0x{x} ({?any}): {s}\nCPU Registers:\n", .{
-            emu.pc,
+            emu.pc - emu.version.instructionSize(),
             emu.instr,
             @errorName(err),
         }) catch {};
@@ -61,6 +74,4 @@ pub fn main() !void {
         }
         return err;
     };
-
-    std.debug.print("{}\n", .{emu});
 }

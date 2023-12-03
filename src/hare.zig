@@ -36,18 +36,7 @@ pub fn main() !void {
     defer file.close();
 
     const fileSize = (try file.metadata()).size();
-
-    const InstructionSize = blk: {
-        inline for (@typeInfo(uekit.arch.Version).Enum.fields) |field| {
-            const fieldValue: uekit.arch.Version = @enumFromInt(field.value);
-            if (version == fieldValue) {
-                const archImpl = @field(uekit.arch.versions, field.name);
-                break :blk @sizeOf(archImpl.Instruction);
-            }
-        }
-        unreachable;
-    };
-
+    const InstructionSize = version.instructionSize();
     const instrCount = res.args.count orelse (fileSize / InstructionSize);
 
     try stdout.writer().print("Path: {s} ({})\nInstructions:\n", .{
