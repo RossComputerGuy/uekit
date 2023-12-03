@@ -31,6 +31,12 @@ pub const Instruction = packed struct {
     opcode: Opcode,
     address: u12,
 
+    pub fn format(self: Instruction, comptime _: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = options;
+        try writer.writeAll(@tagName(self.opcode));
+        try writer.print(" 0x{x}", .{self.address});
+    }
+
     pub inline fn write(self: Instruction, writer: anytype) !void {
         try writer.writeInt(u4, self.opcode, endian);
         try writer.writeInt(u12, self.address, endian);

@@ -27,6 +27,19 @@ pub fn build(b: *std.Build) void {
     exec_dwarf.addModule("clap", clap.module("clap"));
     b.installArtifact(exec_dwarf);
 
+    const exec_hare = b.addExecutable(.{
+        .name = "hare",
+        .root_source_file = .{
+            .path = b.pathFromRoot("src/hare.zig"),
+        },
+        .target = target,
+        .optimize = optimize,
+    });
+
+    exec_hare.addModule("uekit", uekit);
+    exec_hare.addModule("clap", clap.module("clap"));
+    b.installArtifact(exec_hare);
+
     const step_test = b.step("test", "Run all unit tests");
 
     const unit_tests = b.addTest(.{
