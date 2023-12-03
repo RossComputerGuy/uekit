@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Entry = @import("../entry.zig");
 const Console = @This();
@@ -17,6 +18,12 @@ stdin: std.fs.File,
 pub fn create(options: Options) !*Entry {
     const self = try options.allocator.create(Console);
     errdefer options.allocator.destroy(self);
+
+    if (builtin.os.tag == .linux) {
+        var t = try std.os.tcgetattr(options.stdin.handle);
+        t.lflag &= ~(std.os.linux.ECHO | std.os.linux.ICANON);
+        try std.os.tcsetattr(options.stdin.handle, .NOW, t);
+    }
 
     self.* = .{
         .base = .{
