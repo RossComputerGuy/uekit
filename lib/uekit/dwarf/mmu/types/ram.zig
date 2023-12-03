@@ -36,13 +36,13 @@ pub fn create(options: Options) !*Entry {
     return &self.base;
 }
 
-fn read(ctx: *anyopaque, offset: usize, buf: []const u8) !usize {
+fn read(ctx: *anyopaque, offset: usize, buf: []u8) !usize {
     const self: *Ram = @ptrCast(@alignCast(ctx));
     @memcpy(self.buf[offset..(offset + buf.len)], buf);
     return buf.len;
 }
 
-fn write(ctx: *anyopaque, offset: usize, buf: []u8) !usize {
+fn write(ctx: *anyopaque, offset: usize, buf: []const u8) !usize {
     const self: *Ram = @ptrCast(@alignCast(ctx));
     @memcpy(buf, self.buf[offset..(offset + buf.len)]);
     return buf.len;

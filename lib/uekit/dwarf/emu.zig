@@ -9,7 +9,7 @@ pub const versions = struct {
     pub const v2 = @import("versions/v2.zig");
 };
 
-pub const MemoryReader = std.io.Reader(Emulator, anyerror, read);
+pub const MemoryReader = std.io.Reader(*Emulator, anyerror, read);
 
 pub const Options = struct {
     allocator: Allocator,
@@ -20,6 +20,7 @@ allocator: Allocator,
 version: arch.Version,
 registers: []Register,
 mmu: *Mmu,
+instr: ?arch.Instruction,
 pc: usize,
 
 pub fn create(options: Options) !*Emulator {
@@ -32,6 +33,7 @@ pub fn create(options: Options) !*Emulator {
         .registers = undefined,
         .pc = 0,
         .mmu = undefined,
+        .instr = null,
     };
 
     inline for (@typeInfo(arch.Version).Enum.fields) |field| {
@@ -57,7 +59,7 @@ pub fn create(options: Options) !*Emulator {
             return self;
         }
     }
-    unreachable;
+    return error.InvalidVersion;
 }
 
 pub fn deinit(self: *const Emulator) void {
@@ -67,28 +69,16 @@ pub fn deinit(self: *const Emulator) void {
 }
 
 pub fn register(self: *Emulator, name: []const u8) !*Register {
-    for (&self.registers) |*reg| {
+    for (self.registers) |*reg| {
         if (std.mem.eql(u8, reg.name, name)) return reg;
     }
     return error.InvalidRegister;
 }
 
-pub fn read(self: *Emulator, buf: []u8) !usize {
-    if (self.pc + buf.len >= self.maxAddress) return error.OutOfBounds;
-
-    if (self.mmu.entry(self.pc)) |entry| {
-        if (entry.read(self.pc, buf)) |size| {
-            self.pc += size;
-            return size;
-        } else |err| {
-            return err;
-        }
-    } else {
-        @memcpy(buf, 0);
-    }
-
-    self.pc += buf.len;
-    return buf.len;
+pub fn read(self: *Emulator, buf: []u8) anyerror!usize {
+    const s = try self.mmu.read(self.pc, buf);
+    self.pc += s;
+    return s;
 }
 
 pub fn reader(self: *Emulator) MemoryReader {
@@ -100,10 +90,13 @@ pub fn fetch(self: *Emulator) !?arch.Instruction {
         const fieldValue: arch.Version = @enumFromInt(field.value);
         if (self.version == fieldValue) {
             const archImpl = @field(arch.versions, field.name);
-            return archImpl.Instruction.readOrNull(self.reader());
+            if (try archImpl.Instruction.readOrNull(self.reader())) |instr| {
+                return @unionInit(arch.Instruction, field.name, instr);
+            }
+            return null;
         }
     }
-    unreachable;
+    return error.InvalidVersion;
 }
 
 pub fn exec(self: *Emulator, instr: arch.Instruction) !void {
@@ -115,10 +108,30 @@ pub fn exec(self: *Emulator, instr: arch.Instruction) !void {
             return @field(versions, field.name).execute(self, @field(instr, field.name));
         }
     }
+    return error.InvalidVersion;
 }
 
 pub fn run(self: *Emulator) !void {
     while (try self.fetch()) |instr| {
+        self.instr = instr;
         try self.exec(instr);
     }
+
+    self.instr = null;
+}
+
+pub fn format(self: *const Emulator, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    _ = fmt;
+    _ = options;
+
+    try writer.writeAll(@typeName(Emulator));
+
+    try writer.writeAll("{ .registers = .{");
+    for (self.registers, 0..) |reg, i| {
+        try writer.print(" .{s} = {}", .{ reg.name, reg.value });
+        if (i + 1 != self.registers.len) try writer.writeAll(",");
+    }
+    try writer.writeAll("}, .pc = ");
+
+    try writer.print("0x{x} }}", .{self.pc});
 }

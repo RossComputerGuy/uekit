@@ -6,7 +6,6 @@ const File = @This();
 pub const Options = struct {
     allocator: Allocator,
     address: usize,
-    size: usize,
     flags: Entry.Flags,
     path: []const u8,
 };
@@ -16,13 +15,17 @@ allocator: Allocator,
 file: std.fs.File,
 
 pub fn create(options: Options) !*Entry {
-    const self = try options.allocator.create(Entry);
+    const self = try options.allocator.create(File);
     errdefer options.allocator.destroy(self);
+
+    const file = try std.fs.openFileAbsolute(options.path, .{
+        .mode = if (options.flags.readable == 1 and options.flags.writable == 1) .read_write else if (options.flags.readable == 1 and options.flags.writable == 0) .read_only else .write_only,
+    });
 
     self.* = .{
         .base = .{
             .address = options.address,
-            .size = options.size,
+            .size = (try file.metadata()).size(),
             .ptr = self,
             .flags = options.flags,
             .vtable = &.{
@@ -32,20 +35,18 @@ pub fn create(options: Options) !*Entry {
             },
         },
         .allocator = options.allocator,
-        .file = try std.fs.openFileAbsolute(options.path, .{
-            .mode = if (options.flags.readable and options.flags.writable) .read_write else if (options.flags.readable and !options.flags.writable) .read_only else .write_only,
-        }),
+        .file = file,
     };
     return &self.base;
 }
 
-fn read(ctx: *anyopaque, offset: usize, buf: []const u8) !usize {
+fn read(ctx: *anyopaque, offset: usize, buf: []u8) !usize {
     const self: *File = @ptrCast(@alignCast(ctx));
     try self.file.seekTo(offset);
     return self.file.read(buf);
 }
 
-fn write(ctx: *anyopaque, offset: usize, buf: []u8) !usize {
+fn write(ctx: *anyopaque, offset: usize, buf: []const u8) !usize {
     const self: *File = @ptrCast(@alignCast(ctx));
     try self.file.seekTo(offset);
     return self.file.write(buf);

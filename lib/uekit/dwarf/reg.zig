@@ -23,6 +23,11 @@ pub fn size(self: *const Register) !usize {
 }
 
 pub fn set(self: *Register, value: usize) !void {
-    if (value >= try self.size()) return error.RegisterOverflow;
+    if (value > try self.size()) return error.RegisterOverflow;
     self.value = value;
+}
+
+pub fn setOverflow(self: *Register, value: usize) !void {
+    const s = try self.size();
+    self.value = if (value > s) (value - s) else value;
 }

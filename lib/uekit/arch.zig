@@ -4,7 +4,7 @@ pub const versions = struct {
     pub const v2 = @import("arch/v2.zig");
 };
 
-pub const Version = std.meta.DeclEnum(versions);
+pub const Version = enum { v2 };
 
 pub const Opcode = union(enum) {
     v2: versions.v2.Opcode,

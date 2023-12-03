@@ -30,18 +30,13 @@ pub const Opcode = enum(u4) {
 pub const Instruction = packed struct {
     opcode: Opcode,
     address: u12,
-    data: u8,
 
     pub inline fn write(self: Instruction, writer: anytype) !void {
         try writer.writeInt(u4, self.opcode, endian);
         try writer.writeInt(u12, self.address, endian);
-
-        switch (self.opcode) {
-            .ldl, .ldp, .adc, .cmp, .nand, .ori, .ore => try writer.writeInt(u8, self.data, endian),
-        }
     }
 
-    pub inline fn readOrNull(reader: anytype) !?Instruction {
+    pub inline fn readOrNull(reader: anytype) anyerror!?Instruction {
         return read(reader) catch |e| switch (e) {
             error.EndOfStream, error.OutOfBounds => null,
             else => e,
@@ -56,10 +51,6 @@ pub const Instruction = packed struct {
         return .{
             .opcode = opcode,
             .address = address,
-            .data = switch (opcode) {
-                .ldl, .ldp, .adc, .cmp, .nand, .ori, .ore => try reader.readInt(u8, endian),
-                else => 0,
-            },
         };
     }
 };
@@ -75,5 +66,4 @@ test "Instruction decoding" {
     const instr = try Instruction.read(stream.reader());
     try std.testing.expectEqual(Opcode.lrp, instr.opcode);
     try std.testing.expectEqual(@as(u12, 0x10), instr.address);
-    try std.testing.expectEqual(@as(u8, 0), instr.data);
 }

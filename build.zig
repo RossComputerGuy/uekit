@@ -5,9 +5,27 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const no_docs = b.option(bool, "no-docs", "skip installing documentation") orelse false;
 
-    _ = b.addModule("uekit", .{
+    const clap = b.dependency("clap", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const uekit = b.addModule("uekit", .{
         .source_file = .{ .path = b.pathFromRoot("lib/uekit.zig") },
     });
+
+    const exec_dwarf = b.addExecutable(.{
+        .name = "dwarf",
+        .root_source_file = .{
+            .path = b.pathFromRoot("src/dwarf.zig"),
+        },
+        .target = target,
+        .optimize = optimize,
+    });
+
+    exec_dwarf.addModule("uekit", uekit);
+    exec_dwarf.addModule("clap", clap.module("clap"));
+    b.installArtifact(exec_dwarf);
 
     const step_test = b.step("test", "Run all unit tests");
 
