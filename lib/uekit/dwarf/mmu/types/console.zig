@@ -46,7 +46,10 @@ fn read(ctx: *anyopaque, offset: usize, buf: []u8) !usize {
 
     return switch (offset) {
         1 => self.stdin.read(buf),
-        2 => 1,
+        2 => blk: {
+            buf[0] = 1;
+            break :blk 1;
+        },
         else => error.AccessDenied,
     };
 }
