@@ -1,6 +1,13 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+pub const Register = union {
+    rra: u8,
+    rrp: u12,
+    c: u1,
+    z: u1,
+};
+
 pub const Opcode = enum(u4) {
     bz,
     bl,
@@ -36,7 +43,7 @@ pub const Instruction = packed struct {
 
     pub inline fn readOrNull(reader: anytype) !?Instruction {
         return read(reader) catch |e| switch (e) {
-            error.EndOfStream => null,
+            error.EndOfStream, error.OutOfBounds => null,
             else => e,
         };
     }
@@ -57,7 +64,8 @@ pub const Instruction = packed struct {
     }
 };
 
-pub const maxMemory = std.math.maxInt(u12) + 1;
+pub const maxAddress = std.math.maxInt(u12);
+pub const maxData = std.math.maxInt(u12);
 pub const endian = std.builtin.Endian.big;
 
 test "Instruction decoding" {
