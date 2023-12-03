@@ -44,7 +44,7 @@ pub fn read(self: *const Mmu, offset: usize, buf: []u8) anyerror!usize {
     if (offset + buf.len >= self.maxAddress) return error.OutOfBounds;
 
     if (self.entry(offset) catch null) |e| {
-        return e.read(offset, buf);
+        return e.read(offset - e.address, buf);
     } else {
         @memset(buf, 0);
     }
@@ -55,7 +55,7 @@ pub fn write(self: *const Mmu, offset: usize, buf: []const u8) anyerror!usize {
     if (offset + buf.len >= self.maxAddress) return error.OutOfBounds;
 
     if (self.entry(offset) catch null) |e| {
-        return e.write(offset, buf);
+        return e.write(offset - e.address, buf);
     }
 
     // TODO: find the last "ram" type memory entry and expand it.

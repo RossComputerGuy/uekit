@@ -114,7 +114,10 @@ pub fn exec(self: *Emulator, instr: arch.Instruction) !void {
 pub fn run(self: *Emulator) !void {
     while (try self.fetch()) |instr| {
         self.instr = instr;
-        try self.exec(instr);
+        self.exec(instr) catch |err| switch (err) {
+            error.Halt => break,
+            else => return err,
+        };
     }
 
     self.instr = null;

@@ -32,6 +32,12 @@ pub fn main() !void {
     });
     defer emu.deinit();
 
+    try emu.mmu.entries.append(try uekit.dwarf.Mmu.Entry.types.console.create(.{
+        .allocator = emu.allocator,
+        .stdout = std.io.getStdOut(),
+        .stdin = std.io.getStdIn(),
+    }));
+
     if (res.args.exec) |exec| {
         try emu.mmu.entries.append(try uekit.dwarf.Mmu.Entry.types.file.create(.{
             .allocator = emu.allocator,

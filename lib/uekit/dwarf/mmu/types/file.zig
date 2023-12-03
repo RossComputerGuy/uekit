@@ -33,6 +33,7 @@ pub fn create(options: Options) !*Entry {
                 .write = write,
                 .deinit = deinit,
             },
+            .type = @typeName(File),
         },
         .allocator = options.allocator,
         .file = file,

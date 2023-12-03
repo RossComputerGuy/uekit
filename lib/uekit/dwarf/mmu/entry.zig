@@ -16,6 +16,7 @@ size: usize,
 ptr: *anyopaque,
 flags: Flags,
 vtable: *const VTable,
+type: []const u8,
 
 pub inline fn read(self: *const Entry, offset: usize, buf: []u8) !usize {
     if (offset + buf.len > self.size) return error.OutOfBounds;
@@ -48,6 +49,7 @@ pub inline fn end(self: *const Entry) usize {
 }
 
 pub const types = struct {
+    pub const console = @import("types/console.zig");
     pub const file = @import("types/file.zig");
     pub const ram = @import("types/ram.zig");
 };

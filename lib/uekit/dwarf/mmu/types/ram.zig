@@ -29,6 +29,7 @@ pub fn create(options: Options) !*Entry {
                 .write = write,
                 .deinit = deinit,
             },
+            .type = @typeName(Ram),
         },
         .allocator = options.allocator,
         .buf = try options.allocator.alloc(u8, options.size),
