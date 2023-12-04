@@ -154,10 +154,11 @@ fn acceptSymbolName(self: *Parser) ![]const u8 {
     var list = std.ArrayList(u8).init(self.options.allocator);
     errdefer list.deinit();
 
-    while (try self.core.peek()) |token| {
+    while (try self.tokenizer.next()) |token| {
         if (token.type == .@"." or token.type == .identifier) {
-            _ = try self.core.nextToken();
             try list.writer().writeAll(token.text);
+        } else if (token.type == .whitespace) {
+            if (list.items.len > 0) break;
         } else {
             break;
         }
@@ -174,6 +175,10 @@ fn acceptSymbolConstant(self: *Parser) !Symbol.Constant {
     const location = self.core.tokenizer.current_location;
     const variable = try self.acceptSymbolName();
     _ = try self.core.accept(comptime ruleset.is(.@"="));
+
+    const prevMode = self.mode;
+    self.mode = .symbol;
+    defer self.mode = prevMode;
 
     return .{
         .location = location,
