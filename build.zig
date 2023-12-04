@@ -10,8 +10,32 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const parser_toolkit = b.dependency("parser-toolkit", .{
+        .optimize = optimize,
+    });
+
     const uekit = b.addModule("uekit", .{
         .source_file = .{ .path = b.pathFromRoot("lib/uekit.zig") },
+        .dependencies = &.{
+            .{
+                .name = "parser-toolkit",
+                .module = parser_toolkit.module("parser-toolkit"),
+            },
+        },
+    });
+
+    const common = b.createModule(.{
+        .source_file = .{ .path = b.pathFromRoot("src/common.zig") },
+        .dependencies = &.{
+            .{
+                .name = "clap",
+                .module = clap.module("clap"),
+            },
+            .{
+                .name = "uekit",
+                .module = uekit,
+            },
+        },
     });
 
     const exec_dwarf = b.addExecutable(.{
@@ -23,6 +47,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    exec_dwarf.addModule("common", common);
     exec_dwarf.addModule("uekit", uekit);
     exec_dwarf.addModule("clap", clap.module("clap"));
     b.installArtifact(exec_dwarf);
@@ -36,9 +61,24 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    exec_hare.addModule("common", common);
     exec_hare.addModule("uekit", uekit);
     exec_hare.addModule("clap", clap.module("clap"));
     b.installArtifact(exec_hare);
+
+    const exec_lop = b.addExecutable(.{
+        .name = "lop",
+        .root_source_file = .{
+            .path = b.pathFromRoot("src/lop.zig"),
+        },
+        .target = target,
+        .optimize = optimize,
+    });
+
+    exec_lop.addModule("common", common);
+    exec_lop.addModule("uekit", uekit);
+    exec_lop.addModule("clap", clap.module("clap"));
+    b.installArtifact(exec_lop);
 
     const step_test = b.step("test", "Run all unit tests");
 
@@ -49,6 +89,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+
+    unit_tests.addModule("parser-toolkit", parser_toolkit.module("parser-toolkit"));
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
     step_test.dependOn(&run_unit_tests.step);

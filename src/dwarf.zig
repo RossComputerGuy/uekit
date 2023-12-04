@@ -1,3 +1,4 @@
+const common = @import("common");
 const clap = @import("clap");
 const uekit = @import("uekit");
 const std = @import("std");
@@ -6,16 +7,13 @@ pub fn main() !void {
     const stderr = std.io.getStdErr();
     const params = comptime clap.parseParamsComptime(
         \\-h, --help             Display this help and exit.
-        \\-e, --exec <str>       Loads the path to the binary into the emulator.
+        \\-e, --exec <path>      Loads the path to the binary into the emulator.
         \\-v, --version <ver>    Sets the UE version to run the emulator as.
         \\
     );
 
     var diag = clap.Diagnostic{};
-    var res = clap.parse(clap.Help, &params, comptime .{
-        .str = clap.parsers.string,
-        .ver = clap.parsers.enumeration(uekit.arch.Version),
-    }, .{
+    var res = clap.parse(clap.Help, &params, common.parsers, .{
         .diagnostic = &diag,
     }) catch |err| {
         diag.report(stderr.writer(), err) catch {};
