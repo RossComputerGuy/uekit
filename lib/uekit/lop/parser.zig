@@ -154,16 +154,16 @@ fn acceptSymbolName(self: *Parser) ![]const u8 {
     var list = std.ArrayList(u8).init(self.options.allocator);
     errdefer list.deinit();
 
-    while (@as(?Tokenizer.Token, self.core.accept(comptime ruleset.oneOf(.{ .@".", .identifier })) catch |err| switch (err) {
-        error.UnexpectedToken => null,
-        else => return err,
-    })) |token| {
-        if (token.type == .@".") {
-            try list.writer().writeByte('.');
-        } else {
+    while (try self.core.peek()) |token| {
+        if (token.type == .@"." or token.type == .identifier) {
+            _ = try self.core.nextToken();
             try list.writer().writeAll(token.text);
+        } else {
+            break;
         }
     }
+
+    if (list.items.len < 1) return error.UnexpectedToken;
     return list.items;
 }
 
@@ -212,12 +212,12 @@ fn acceptSymbol(self: *Parser, msg: *?Message) !Symbol.Union {
     const state = self.core.saveState();
     errdefer self.core.restoreState(state);
 
+    const beginToken = (try self.core.peek()) orelse return error.EndOfStream;
     self.options.allocator.free(self.acceptSymbolName() catch |err| {
-        const token = (try self.core.peek()) orelse return error.EndOfStream;
         msg.* = .{
-            .location = self.core.tokenizer.current_location,
+            .location = beginToken.location,
             .err = "UnexpectedToken",
-            .msg = try std.fmt.allocPrint(self.options.allocator, "Expected identifier, got {s} as {s}", .{ token.text, @tagName(token.type) }),
+            .msg = try std.fmt.allocPrint(self.options.allocator, "Expected identifier, got {s} as {s}", .{ beginToken.text, @tagName(beginToken.type) }),
         };
         return err;
     });
@@ -269,7 +269,7 @@ fn acceptBuiltin(self: *Parser) anyerror!Builtin {
 
     return .{
         .location = token.location,
-        .method = Builtin.Method.read(name.text) orelse return error.InvalidBuiltin,
+        .method = Builtin.Method.parse(name.text) orelse return error.InvalidBuiltin,
         .params = params,
     };
 }
@@ -314,7 +314,10 @@ fn acceptExpression(self: *Parser) !Expression {
     }
 
     return switch (self.mode) {
-        .normal => .{ .literal = try self.acceptSymbolName() },
+        .normal => {
+            self.core.restoreState(state);
+            return .{ .literal = try self.acceptSymbolName() };
+        },
         .symbol => {
             if ((comptime ruleset.is(.identifier))(token.type)) {
                 const opcode = arch.Opcode.parse(self.options.version, token.text) orelse return error.UnexpectedToken;

@@ -5,8 +5,8 @@ _start:
   lrp hellord
 .loop:
   ldp
-  cmp
-  bz -1
+  cmp zero
+  bz @offset(@ip(), -1)
   stl consts.TX
   inp
   scf consts.Z
@@ -14,3 +14,4 @@ _start:
 
 hellord = %section("rodata")
 hellord = %string("Hellord\n")
+zero = 0

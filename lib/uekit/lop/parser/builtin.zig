@@ -7,8 +7,9 @@ pub const Method = enum {
     import,
     offset,
     string,
+    ip,
 
-    pub fn read(in: []const u8) ?Method {
+    pub fn parse(in: []const u8) ?Method {
         inline for (@typeInfo(Method).Enum.fields) |field| {
             const fieldValue: Method = @enumFromInt(field.value);
             if (std.mem.eql(u8, field.name, in)) return fieldValue;
