@@ -11,6 +11,11 @@ pub const Message = struct {
     location: ptk.Location,
     err: []const u8,
     msg: []const u8,
+
+    pub fn format(self: Message, comptime _: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = options;
+        try writer.print("{} ({s}): {s}", .{ self.location, self.err, self.msg });
+    }
 };
 
 pub const Options = struct {
@@ -22,6 +27,7 @@ pub const TokenType = enum {
     number,
     identifier,
     whitespace,
+    linefeed,
     symbol,
     string,
     @"(",
@@ -41,7 +47,7 @@ pub const Tokenizer = ptk.Tokenizer(TokenType, &[_]Pattern{
     Pattern.create(.number, ptk.matchers.decimalNumber),
     Pattern.create(.identifier, ptk.matchers.identifier),
     Pattern.create(.whitespace, ptk.matchers.whitespace),
-    Pattern.create(.whitespace, ptk.matchers.linefeed),
+    Pattern.create(.linefeed, ptk.matchers.linefeed),
     Pattern.create(.string, ptk.matchers.sequenceOf(.{
         ptk.matchers.literal("\""),
         ptk.matchers.takeNoneOf("\"\n"),
@@ -58,26 +64,7 @@ pub const Tokenizer = ptk.Tokenizer(TokenType, &[_]Pattern{
     Pattern.create(.@":", ptk.matchers.literal(":")),
 });
 
-pub const SymbolStream = struct {
-    parser: *Parser,
-
-    pub fn location(self: *SymbolStream) ptk.Location {
-        return self.parser.core.tokenizer.current_location;
-    }
-
-    pub fn next(self: *SymbolStream) !?Symbol.Union {
-        return self.parser.acceptSymbol() catch |err| switch (err) {
-            error.EndOfStream => null,
-            else => err,
-        };
-    }
-
-    pub fn deinit(self: *SymbolStream) void {
-        self.parser.options.allocator.destroy(self.parser);
-    }
-};
-
-const ParserCore = ptk.ParserCore(Tokenizer, .{.whitespace});
+const ParserCore = ptk.ParserCore(Tokenizer, .{ .whitespace, .linefeed });
 const ruleset = ptk.RuleSet(TokenType);
 
 const Mode = enum {
@@ -90,22 +77,42 @@ const State = struct {
     core: ParserCore.State,
 };
 
+tokenizer: Tokenizer,
 core: ParserCore,
 options: Options,
 mode: Mode,
 
 pub fn init(options: Options, expression: []const u8, path: ?[]const u8) Parser {
-    var tokenizer = Tokenizer.init(expression, path);
-
-    return .{
-        .core = ParserCore.init(&tokenizer),
+    var self = Parser{
+        .tokenizer = Tokenizer.init(expression, path),
+        .core = undefined,
         .options = options,
         .mode = .normal,
     };
+
+    self.core = ParserCore.init(&self.tokenizer);
+    return self;
+}
+
+pub fn create(options: Options, expression: []const u8, path: ?[]const u8) !*Parser {
+    const self = try options.allocator.create(Parser);
+    errdefer options.allocator.destroy(self);
+
+    self.* = .{
+        .tokenizer = Tokenizer.init(expression, path),
+        .core = undefined,
+        .options = options,
+        .mode = .normal,
+    };
+
+    self.core = ParserCore.init(&self.tokenizer);
+    return self;
 }
 
 pub fn parse(options: Options, messages: *std.ArrayList(Message), expression: []const u8, path: ?[]const u8) !std.ArrayList(Symbol.Union) {
-    var parser = init(options, expression, path);
+    var parser = try create(options, expression, path);
+    defer options.allocator.destroy(parser);
+
     var syms = std.ArrayList(Symbol.Union).init(options.allocator);
     errdefer syms.deinit();
 
@@ -126,10 +133,11 @@ fn restoreState(self: *Parser, state: State) void {
 }
 
 fn accept(self: *Parser, messages: *std.ArrayList(Message)) !?Symbol.Union {
-    return self.acceptSymbol() catch |err| switch (err) {
+    var msg: ?Message = null;
+    return self.acceptSymbol(&msg) catch |err| switch (err) {
         error.EndOfStream => return null,
         else => {
-            try messages.append(.{
+            try messages.append(msg orelse .{
                 .location = self.core.tokenizer.current_location,
                 .err = @errorName(err),
                 .msg = "TODO: analyze the error",
@@ -139,16 +147,37 @@ fn accept(self: *Parser, messages: *std.ArrayList(Message)) !?Symbol.Union {
     };
 }
 
+fn acceptSymbolName(self: *Parser) ![]const u8 {
+    const state = self.core.saveState();
+    errdefer self.core.restoreState(state);
+
+    var list = std.ArrayList(u8).init(self.options.allocator);
+    errdefer list.deinit();
+
+    while (@as(?Tokenizer.Token, self.core.accept(comptime ruleset.oneOf(.{ .@".", .identifier })) catch |err| switch (err) {
+        error.UnexpectedToken => null,
+        else => return err,
+    })) |token| {
+        if (token.type == .@".") {
+            try list.writer().writeByte('.');
+        } else {
+            try list.writer().writeAll(token.text);
+        }
+    }
+    return list.items;
+}
+
 fn acceptSymbolConstant(self: *Parser) !Symbol.Constant {
     const state = self.core.saveState();
     errdefer self.core.restoreState(state);
 
-    const variable = try self.core.accept(comptime ruleset.is(.identifier));
+    const location = self.core.tokenizer.current_location;
+    const variable = try self.acceptSymbolName();
     _ = try self.core.accept(comptime ruleset.is(.@"="));
 
     return .{
-        .location = variable.location,
-        .name = variable.text,
+        .location = location,
+        .name = variable,
         .expr = try self.acceptExpression(),
     };
 }
@@ -157,7 +186,8 @@ fn acceptSymbolData(self: *Parser) !Symbol.Data {
     const state = self.core.saveState();
     errdefer self.core.restoreState(state);
 
-    const symbol = try self.core.accept(comptime ruleset.is(.identifier));
+    const location = self.core.tokenizer.current_location;
+    const symbol = try self.acceptSymbolName();
     _ = try self.core.accept(comptime ruleset.is(.@":"));
 
     var exprs = std.ArrayList(Expression).init(self.options.allocator);
@@ -172,25 +202,42 @@ fn acceptSymbolData(self: *Parser) !Symbol.Data {
     }
 
     return .{
-        .location = symbol.location,
-        .name = symbol.text,
+        .location = location,
+        .name = symbol,
         .expressions = exprs,
     };
 }
 
-fn acceptSymbol(self: *Parser) !Symbol.Union {
-    const constant: ?Symbol.Constant = self.acceptSymbolConstant() catch |err| switch (err) {
-        error.EndOfStream => return err,
-        else => null,
-    };
+fn acceptSymbol(self: *Parser, msg: *?Message) !Symbol.Union {
+    const state = self.core.saveState();
+    errdefer self.core.restoreState(state);
 
-    const data: ?Symbol.Data = self.acceptSymbolData() catch |err| switch (err) {
-        error.EndOfStream => return err,
-        else => null,
-    };
+    self.options.allocator.free(self.acceptSymbolName() catch |err| {
+        const token = (try self.core.peek()) orelse return error.EndOfStream;
+        msg.* = .{
+            .location = self.core.tokenizer.current_location,
+            .err = "UnexpectedToken",
+            .msg = try std.fmt.allocPrint(self.options.allocator, "Expected identifier, got {s} as {s}", .{ token.text, @tagName(token.type) }),
+        };
+        return err;
+    });
 
-    if (constant != null) return .{ .constant = constant.? };
-    if (data != null) return .{ .data = data.? };
+    const token = (try self.core.nextToken()) orelse return error.EndOfStream;
+    self.core.restoreState(state);
+
+    if ((comptime ruleset.is(.@"="))(token.type)) {
+        return .{ .constant = try self.acceptSymbolConstant() };
+    }
+
+    if ((comptime ruleset.is(.@":"))(token.type)) {
+        return .{ .data = try self.acceptSymbolData() };
+    }
+
+    msg.* = .{
+        .location = token.location,
+        .err = "UnexpectedToken",
+        .msg = try std.fmt.allocPrint(self.options.allocator, "Expected constant assignment or data declaration token, got {s} as {s}", .{ token.text, @tagName(token.type) }),
+    };
     return error.UnexpectedToken;
 }
 
@@ -210,7 +257,10 @@ fn acceptBuiltin(self: *Parser) anyerror!Builtin {
         try params.append(try self.acceptExpression());
 
         const t = try self.core.peek() orelse return error.EndOfStream;
-        if ((comptime ruleset.is(.@")"))(t.type)) break;
+        if ((comptime ruleset.is(.@")"))(t.type)) {
+            _ = try self.core.nextToken();
+            break;
+        }
         if ((comptime ruleset.is(.@","))(t.type)) {
             _ = try self.core.nextToken();
         }
@@ -264,12 +314,7 @@ fn acceptExpression(self: *Parser) !Expression {
     }
 
     return switch (self.mode) {
-        .normal => {
-            if ((comptime ruleset.is(.identifier))(token.type)) {
-                return .{ .literal = token.text };
-            }
-            return error.InvalidExpression;
-        },
+        .normal => .{ .literal = try self.acceptSymbolName() },
         .symbol => {
             if ((comptime ruleset.is(.identifier))(token.type)) {
                 const opcode = arch.Opcode.parse(self.options.version, token.text) orelse return error.UnexpectedToken;

@@ -6,6 +6,7 @@ pub const Method = enum {
     section,
     import,
     offset,
+    string,
 
     pub fn read(in: []const u8) ?Method {
         inline for (@typeInfo(Method).Enum.fields) |field| {
