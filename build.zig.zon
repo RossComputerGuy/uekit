@@ -11,5 +11,9 @@
       .url = "https://github.com/MasterQ32/parser-toolkit/archive/5416f1ff721cbfbf91397e557fc400e004804361.tar.gz",
       .hash = "12207450343aa027d9478b85b67b2f390360851d17dbf00e95376d133140276479c2",
     },
+    .@"meta+" = .{
+      .url = "https://github.com/MidstallSoftware/meta-plus/archive/2ee7b6eea70dfdf52d88c378e603e2b886fdd5c3.tar.gz",
+      .hash = "12206db0349ec554a40f23e657bbcc197bc32bf2c4f94990daa3fb11a4eab165be6e",
+    },
   },
 }

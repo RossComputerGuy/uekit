@@ -10,6 +10,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const metaplus = b.dependency("meta+", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const parser_toolkit = b.dependency("parser-toolkit", .{
         .optimize = optimize,
     });
@@ -20,6 +25,10 @@ pub fn build(b: *std.Build) void {
             .{
                 .name = "parser-toolkit",
                 .module = parser_toolkit.module("parser-toolkit"),
+            },
+            .{
+                .name = "meta+",
+                .module = metaplus.module("meta+"),
             },
         },
     });
@@ -91,6 +100,7 @@ pub fn build(b: *std.Build) void {
     });
 
     unit_tests.addModule("parser-toolkit", parser_toolkit.module("parser-toolkit"));
+    unit_tests.addModule("meta+", metaplus.module("meta+"));
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
     step_test.dependOn(&run_unit_tests.step);

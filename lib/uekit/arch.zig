@@ -32,6 +32,26 @@ pub const Version = enum {
 
 pub const Opcode = union(enum) {
     v2: versions.v2.Opcode,
+
+    pub fn parse(version: Version, in: []const u8) ?Opcode {
+        inline for (@typeInfo(Version).Enum.fields) |field| {
+            const fieldValue: Version = @enumFromInt(field.value);
+            if (version == fieldValue) {
+                const archImpl = @field(versions, field.name);
+                if (archImpl.Opcode.parse(in)) |value| {
+                    return @unionInit(Opcode, field.name, value);
+                }
+                return null;
+            }
+        }
+        unreachable;
+    }
+
+    pub fn operandCount(self: Opcode) usize {
+        return switch (self) {
+            .v2 => |v| v.operandCount(),
+        };
+    }
 };
 
 pub const Instruction = union(enum) {

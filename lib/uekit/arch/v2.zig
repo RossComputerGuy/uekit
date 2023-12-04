@@ -25,6 +25,21 @@ pub const Opcode = enum(u4) {
     nand,
     ori,
     ore,
+
+    pub fn parse(in: []const u8) ?Opcode {
+        inline for (@typeInfo(Opcode).Enum.fields) |field| {
+            const fieldValue: Opcode = @enumFromInt(field.value);
+            if (std.mem.eql(u8, field.name, in)) return fieldValue;
+        }
+        return null;
+    }
+
+    pub fn operandCount(self: Opcode) usize {
+        return switch (self) {
+            .scf, .ldp, .stp, .inp, .srl => 0,
+            else => 1,
+        };
+    }
 };
 
 pub const Instruction = packed struct {

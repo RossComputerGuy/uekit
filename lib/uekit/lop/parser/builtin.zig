@@ -5,6 +5,7 @@ const Expression = @import("expr.zig").Expression;
 pub const Method = enum {
     section,
     import,
+    offset,
 
     pub fn read(in: []const u8) ?Method {
         inline for (@typeInfo(Method).Enum.fields) |field| {
