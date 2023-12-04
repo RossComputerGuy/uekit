@@ -160,6 +160,7 @@ fn acceptSymbolName(self: *Parser) ![]const u8 {
         } else if (token.type == .whitespace) {
             if (list.items.len > 0) break;
         } else {
+            self.tokenizer.offset -= token.text.len;
             break;
         }
     }
