@@ -8,6 +8,7 @@ pub const Method = enum {
     offset,
     string,
     ip,
+    byte,
 
     pub fn parse(in: []const u8) ?Method {
         inline for (@typeInfo(Method).Enum.fields) |field| {

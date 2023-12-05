@@ -223,9 +223,9 @@ fn acceptSymbolData(self: *Parser, msg: *?Message) !Symbol.Data {
     defer self.mode = prevMode;
 
     while (try self.core.peek()) |token| {
-        if (token.type == .@":" or token.type == .@".") break;
+        if (token.type == .@".") break;
         if (try self.peekDepth(2)) |tokenSplit| {
-            if (tokenSplit.type == .@"=") break;
+            if (tokenSplit.type == .@"=" or tokenSplit.type == .@":") break;
         }
 
         try exprs.append(try self.acceptExpression(msg));

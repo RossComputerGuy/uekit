@@ -1,7 +1,7 @@
 consts = %import("consts.s")
 
-_start = %section("code")
 _start:
+  %section("code")
   lrp hellord
 .loop:
   ldp
@@ -12,6 +12,8 @@ _start:
   scf consts.Z
   bz .loop
 
-hellord = %section("rodata")
-hellord = %string("Hellord\n")
-zero = 0
+hellord:
+  %section("rodata")
+  %string("Hellord\n")
+zero:
+  %byte(0)
