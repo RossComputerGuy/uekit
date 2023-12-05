@@ -36,7 +36,7 @@ pub const Opcode = enum(u4) {
 
     pub fn operandCount(self: Opcode) usize {
         return switch (self) {
-            .scf, .ldp, .stp, .inp, .srl => 0,
+            .ldp, .stp, .inp, .srl => 0,
             else => 1,
         };
     }
