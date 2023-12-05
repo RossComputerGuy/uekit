@@ -132,6 +132,16 @@ fn restoreState(self: *Parser, state: State) void {
     self.core.restoreState(state.core);
 }
 
+fn peekDepth(self: *Parser, n: usize) !?Tokenizer.Token {
+    const state = self.saveState();
+    defer self.restoreState(state);
+
+    var token: ?Tokenizer.Token = null;
+    var i: usize = 0;
+    while (i < n) : (i += 1) token = try self.core.nextToken();
+    return token;
+}
+
 fn accept(self: *Parser, messages: *std.ArrayList(Message)) !?Symbol.Union {
     var msg: ?Message = null;
     return self.acceptSymbol(&msg) catch |err| switch (err) {
@@ -214,6 +224,9 @@ fn acceptSymbolData(self: *Parser, msg: *?Message) !Symbol.Data {
 
     while (try self.core.peek()) |token| {
         if (token.type == .@":" or token.type == .@".") break;
+        if (try self.peekDepth(2)) |tokenSplit| {
+            if (tokenSplit.type == .@"=") break;
+        }
 
         try exprs.append(try self.acceptExpression(msg));
     }
