@@ -4,27 +4,29 @@ const Expression = @import("expr.zig").Expression;
 
 pub const Constant = struct {
     location: ptk.Location,
-    name: []const u8,
+    name: std.ArrayList(u8),
     expr: Expression,
 
     pub fn deinit(self: Constant) void {
-        return self.expr.deinit();
+        self.name.deinit();
+        self.expr.deinit();
     }
 
     pub fn format(self: Constant, comptime _: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
 
         try writer.writeAll(@typeName(Constant));
-        try writer.print("{{ .location = {}, .name = {s}, .expr = {} }}", .{ self.location, self.name, self.expr });
+        try writer.print("{{ .location = {}, .name = {s}, .expr = {} }}", .{ self.location, self.name.items, self.expr });
     }
 };
 
 pub const Data = struct {
     location: ptk.Location,
-    name: []const u8,
+    name: std.ArrayList(u8),
     expressions: std.ArrayList(Expression),
 
     pub fn deinit(self: Data) void {
+        self.name.deinit();
         for (self.expressions.items) |expr| expr.deinit();
         self.expressions.deinit();
     }
@@ -33,7 +35,7 @@ pub const Data = struct {
         _ = options;
 
         try writer.writeAll(@typeName(Data));
-        try writer.print("{{ .location = {}, .name = {s}, .expressions = {any} }}", .{ self.location, self.name, self.expressions.items });
+        try writer.print("{{ .location = {}, .name = {s}, .expressions = {any} }}", .{ self.location, self.name.items, self.expressions.items });
     }
 };
 

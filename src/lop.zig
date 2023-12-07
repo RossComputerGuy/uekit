@@ -43,7 +43,10 @@ pub fn main() !void {
         .allocator = common.allocator,
     }, &messages, code, res.positionals[0]) catch |err| {
         try stderr.print("Errors:\n", .{});
-        for (messages.items) |msg| try stderr.print("\t{}\n", .{msg});
+        for (messages.items) |msg| {
+            try stderr.print("\t{}\n", .{msg});
+            common.allocator.free(msg.msg);
+        }
         return err;
     };
     defer {

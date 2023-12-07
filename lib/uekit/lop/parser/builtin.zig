@@ -1,6 +1,7 @@
 const std = @import("std");
 const ptk = @import("parser-toolkit");
 const Expression = @import("expr.zig").Expression;
+const Builtin = @This();
 
 pub const Method = enum {
     section,
@@ -30,3 +31,8 @@ pub const Method = enum {
 location: ptk.Location,
 method: Method,
 params: std.ArrayList(Expression),
+
+pub fn deinit(self: Builtin) void {
+    for (self.params.items) |param| param.deinit();
+    self.params.deinit();
+}

@@ -6,23 +6,32 @@ pub const Expression = union(enum) {
     unsignedNumber: usize,
     signedNumber: isize,
     builtin: Builtin,
-    string: []const u8,
-    literal: []const u8,
+    string: std.ArrayList(u8),
+    literal: std.ArrayList(u8),
     instruction: struct {
         opcode: arch.FullOpcode,
         operands: ?std.ArrayList(*Expression),
     },
 
     pub fn deinit(self: Expression) void {
-        if (self == .instruction) {
-            if (self.instruction.operands) |operands| {
-                for (operands.items) |op| {
-                    op.deinit();
-                    operands.allocator.destroy(op);
-                }
+        switch (self) {
+            .builtin => |builtin| {
+                builtin.deinit();
+            },
+            .string, .literal => |alu8| {
+                alu8.deinit();
+            },
+            .instruction => |instr| {
+                if (instr.operands) |operands| {
+                    for (operands.items) |op| {
+                        op.deinit();
+                        operands.allocator.destroy(op);
+                    }
 
-                operands.deinit();
-            }
+                    operands.deinit();
+                }
+            },
+            else => {},
         }
     }
 
@@ -36,7 +45,7 @@ pub const Expression = union(enum) {
             .unsignedNumber => |un| try writer.print("{} ", .{un}),
             .signedNumber => |sn| try writer.print("{} ", .{sn}),
             .builtin => |bt| try writer.print("{} ", .{bt}),
-            .string, .literal => |sl| try writer.print("{s} ", .{sl}),
+            .string, .literal => |sl| try writer.print("{s} ", .{sl.items}),
             .instruction => |inst| {
                 try writer.print("{{ .opcode = {}", .{inst.opcode});
 

@@ -157,7 +157,7 @@ fn accept(self: *Parser, messages: *std.ArrayList(Message)) !?Symbol.Union {
     };
 }
 
-fn acceptSymbolName(self: *Parser, msg: *?Message) ![]const u8 {
+fn acceptSymbolName(self: *Parser, msg: *?Message) !std.ArrayList(u8) {
     const state = self.core.saveState();
     errdefer self.core.restoreState(state);
 
@@ -172,7 +172,6 @@ fn acceptSymbolName(self: *Parser, msg: *?Message) ![]const u8 {
         } else if (token.type == .whitespace) {
             if (list.items.len > 0) break;
         } else {
-            self.tokenizer.offset -= token.text.len;
             break;
         }
     }
@@ -185,7 +184,7 @@ fn acceptSymbolName(self: *Parser, msg: *?Message) ![]const u8 {
         };
         return error.UnexpectedToken;
     }
-    return list.items;
+    return list;
 }
 
 fn acceptSymbolConstant(self: *Parser, msg: *?Message) !Symbol.Constant {
@@ -194,7 +193,19 @@ fn acceptSymbolConstant(self: *Parser, msg: *?Message) !Symbol.Constant {
 
     const location = self.core.tokenizer.current_location;
     const variable = try self.acceptSymbolName(msg);
-    _ = try self.core.accept(comptime ruleset.is(.@"="));
+    errdefer variable.deinit();
+
+    _ = (try self.core.nextToken()) orelse return error.EndOfStream;
+
+    _ = self.core.accept(comptime ruleset.is(.@"=")) catch |err| {
+        const token = (try self.core.peek()) orelse return error.EndOfStream;
+        msg.* = .{
+            .location = token.location,
+            .err = "UnexpectedToken",
+            .msg = try std.fmt.allocPrint(self.options.allocator, "Expected equal sign, got {s} as {s}", .{ token.text, @tagName(token.type) }),
+        };
+        return err;
+    };
 
     const prevMode = self.mode;
     self.mode = .symbol;
@@ -213,6 +224,10 @@ fn acceptSymbolData(self: *Parser, msg: *?Message) !Symbol.Data {
 
     const location = self.core.tokenizer.current_location;
     const symbol = try self.acceptSymbolName(msg);
+    errdefer symbol.deinit();
+
+    _ = (try self.core.nextToken()) orelse return error.EndOfStream;
+
     _ = try self.core.accept(comptime ruleset.is(.@":"));
 
     var exprs = std.ArrayList(Expression).init(self.options.allocator);
@@ -243,14 +258,15 @@ fn acceptSymbol(self: *Parser, msg: *?Message) !Symbol.Union {
     errdefer self.core.restoreState(state);
 
     const beginToken = (try self.core.peek()) orelse return error.EndOfStream;
-    self.options.allocator.free(self.acceptSymbolName(msg) catch |err| {
+    const name = self.acceptSymbolName(msg) catch |err| {
         msg.* = .{
             .location = beginToken.location,
             .err = "UnexpectedToken",
             .msg = try std.fmt.allocPrint(self.options.allocator, "Expected identifier, got {s} as {s}", .{ beginToken.text, @tagName(beginToken.type) }),
         };
         return err;
-    });
+    };
+    name.deinit();
 
     const token = (try self.core.nextToken()) orelse return error.EndOfStream;
     self.core.restoreState(state);
@@ -282,7 +298,10 @@ fn acceptBuiltin(self: *Parser, msg: *?Message) anyerror!Builtin {
     _ = try self.core.accept(comptime ruleset.is(.@"("));
 
     var params = std.ArrayList(Expression).init(self.options.allocator);
-    errdefer params.deinit();
+    errdefer {
+        for (params.items) |param| param.deinit();
+        params.deinit();
+    }
 
     var i: usize = 0;
     while (i < method.parameterCount()) : (i += 1) {
@@ -336,7 +355,9 @@ fn acceptExpression(self: *Parser, msg: *?Message) !Expression {
     }
 
     if ((comptime ruleset.is(.string))(token.type)) {
-        return .{ .string = token.text[1..(token.text.len - 1)] };
+        var list = std.ArrayList(u8).init(self.options.allocator);
+        try list.appendSlice(token.text[1..(token.text.len - 1)]);
+        return .{ .string = list };
     }
 
     return switch (self.mode) {
@@ -354,12 +375,19 @@ fn acceptExpression(self: *Parser, msg: *?Message) !Expression {
                     };
                     return error.UnexpectedToken;
                 };
+
                 return .{
                     .instruction = .{
                         .opcode = opcode,
                         .operands = if (opcode.operandCount() == 0) null else blk: {
                             var operands = try std.ArrayList(*Expression).initCapacity(self.options.allocator, opcode.operandCount());
-                            errdefer operands.deinit();
+                            errdefer {
+                                for (operands.items) |item| {
+                                    item.*.deinit();
+                                    self.options.allocator.destroy(item);
+                                }
+                                operands.deinit();
+                            }
 
                             const prevMode = self.mode;
                             self.mode = .normal;
@@ -370,6 +398,7 @@ fn acceptExpression(self: *Parser, msg: *?Message) !Expression {
                                 const value = try self.options.allocator.create(Expression);
                                 errdefer self.options.allocator.destroy(value);
                                 value.* = try self.acceptExpression(msg);
+                                errdefer value.*.deinit();
 
                                 try operands.append(value);
 
@@ -399,29 +428,38 @@ test "Parsing expressions" {
     };
 
     var msg: ?Message = null;
+    errdefer {
+        if (msg) |value| options.allocator.free(value.msg);
+    }
 
     try std.testing.expectEqual(@as(usize, 0b11), (try @constCast(&init(options, "0b11", null)).acceptExpression(&msg)).unsignedNumber);
     try std.testing.expectEqual(@as(usize, 0o11), (try @constCast(&init(options, "0o11", null)).acceptExpression(&msg)).unsignedNumber);
     try std.testing.expectEqual(@as(usize, 0x11), (try @constCast(&init(options, "0x11", null)).acceptExpression(&msg)).unsignedNumber);
     try std.testing.expectEqual(@as(usize, 11), (try @constCast(&init(options, "11", null)).acceptExpression(&msg)).unsignedNumber);
 
-    try std.testing.expectEqualStrings("Hellord", (try @constCast(&init(options, "\"Hellord\"", null)).acceptExpression(&msg)).string);
+    const str = (try @constCast(&init(options, "\"Hellord\"", null)).acceptExpression(&msg)).string;
+    defer str.deinit();
+    try std.testing.expectEqualStrings("Hellord", str.items);
 }
 
 test "Parsing builtin" {
     var msg: ?Message = null;
+    errdefer {
+        if (msg) |value| std.testing.allocator.free(value.msg);
+    }
+
     const section = try @constCast(&init(.{
         .allocator = std.testing.allocator,
         .version = .v2,
     }, "%section(\"code\")", null)).acceptBuiltin(&msg);
-    defer section.params.deinit();
+    defer section.deinit();
 
     try std.testing.expectEqual(@as(usize, 1), section.location.line);
     try std.testing.expectEqual(@as(usize, 1), section.location.column);
     try std.testing.expectEqual(@as(?[]const u8, null), section.location.source);
     try std.testing.expectEqual(Builtin.Method.section, section.method);
     try std.testing.expectEqual(@as(usize, 1), section.params.items.len);
-    try std.testing.expectEqualStrings("code", section.params.items[0].string);
+    try std.testing.expectEqualStrings("code", section.params.items[0].string.items);
 }
 
 test "Parsing symbol constant" {
@@ -431,8 +469,15 @@ test "Parsing symbol constant" {
     };
 
     var msg: ?Message = null;
-    const symbol = try @constCast(&init(options, "std = %import(\"std\")", null)).acceptSymbolConstant(&msg);
-    defer symbol.expr.builtin.params.deinit();
+    errdefer {
+        if (msg) |value| options.allocator.free(value.msg);
+    }
+
+    const symbol = @constCast(&init(options, "std = %import(\"std\")", null)).acceptSymbolConstant(&msg) catch |err| {
+        std.debug.print("Parser error message: {?any}\n", .{msg});
+        return err;
+    };
+    defer symbol.deinit();
 
     try std.testing.expectEqual(@as(usize, 1), symbol.location.line);
     try std.testing.expectEqual(@as(usize, 1), symbol.location.column);
@@ -441,5 +486,29 @@ test "Parsing symbol constant" {
     try std.testing.expectEqual(@as(usize, 1), symbol.expr.builtin.location.line);
     try std.testing.expectEqual(@as(usize, 7), symbol.expr.builtin.location.column);
     try std.testing.expectEqual(@as(usize, 1), symbol.expr.builtin.params.items.len);
-    try std.testing.expectEqualStrings("std", symbol.expr.builtin.params.items[0].string);
+    try std.testing.expectEqualStrings("std", symbol.expr.builtin.params.items[0].string.items);
+}
+
+test "Parsing symbol data" {
+    const options = Options{
+        .allocator = std.testing.allocator,
+        .version = .v2,
+    };
+
+    var msg: ?Message = null;
+    errdefer {
+        if (msg) |value| options.allocator.free(value.msg);
+    }
+
+    const symbol = @constCast(&init(options, "loop:\n\tjmp loop", null)).acceptSymbolData(&msg) catch |err| {
+        std.debug.print("Parser error message: {?any}\n", .{msg});
+        return err;
+    };
+    defer symbol.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), symbol.location.line);
+    try std.testing.expectEqual(@as(usize, 1), symbol.location.column);
+    try std.testing.expectEqual(@as(?[]const u8, null), symbol.location.source);
+    try std.testing.expectEqual(@as(usize, 1), symbol.expressions.items.len);
+    try std.testing.expectEqual(arch.PseudoOpcode.jmp, symbol.expressions.items[0].instruction.opcode.pseudo);
 }
