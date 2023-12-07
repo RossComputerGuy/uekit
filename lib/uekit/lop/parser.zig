@@ -8,9 +8,12 @@ pub const Expression = @import("parser/expr.zig").Expression;
 pub const Symbol = @import("parser/symbol.zig");
 
 pub const Error = error{
+    InvalidExpression,
+    InvalidBuiltin,
     UnexpectedToken,
+    UnexpectedCharacter,
     EndOfStream,
-} || std.mem.Allocator.Error;
+} || std.mem.Allocator.Error || std.fmt.ParseIntError;
 
 pub const Message = struct {
     location: ptk.Location,
@@ -182,7 +185,7 @@ fn peekDepth(self: *Parser, n: usize) !?Tokenizer.Token {
     return token;
 }
 
-fn accept(self: *Parser, messages: *std.ArrayList(Message)) !?Symbol.Union {
+fn accept(self: *Parser, messages: *std.ArrayList(Message)) Error!?Symbol.Union {
     var msg: ?Message = null;
     return self.acceptSymbol(&msg) catch |err| switch (err) {
         error.EndOfStream => {
@@ -196,7 +199,7 @@ fn accept(self: *Parser, messages: *std.ArrayList(Message)) !?Symbol.Union {
     };
 }
 
-fn acceptSymbolName(self: *Parser, msg: *?Message) !std.ArrayList(u8) {
+fn acceptSymbolName(self: *Parser, msg: *?Message) Error!std.ArrayList(u8) {
     const state = self.core.saveState();
     errdefer self.core.restoreState(state);
 
@@ -214,20 +217,24 @@ fn acceptSymbolName(self: *Parser, msg: *?Message) !std.ArrayList(u8) {
                 return err;
             };
         } else if (token.type == .whitespace) {
-            if (list.items.len > 0) break;
+            if (list.items.len > 0) {
+                self.tokenizer.offset -= token.text.len;
+                break;
+            }
         } else {
+            self.tokenizer.offset -= token.text.len;
             break;
         }
     }
 
     if (list.items.len < 1) {
-        msg.* = try Message.errors.UnexpectedToken(self.options.allocator, begin, .{.identifier});
+        msg.* = try Message.errors.UnexpectedToken(self.options.allocator, begin, .{ .@".", .identifier });
         return error.UnexpectedToken;
     }
     return list;
 }
 
-fn acceptSymbolConstant(self: *Parser, msg: *?Message) !Symbol.Constant {
+fn acceptSymbolConstant(self: *Parser, msg: *?Message) Error!Symbol.Constant {
     const state = self.core.saveState();
     errdefer self.core.restoreState(state);
 
@@ -252,7 +259,7 @@ fn acceptSymbolConstant(self: *Parser, msg: *?Message) !Symbol.Constant {
     };
 }
 
-fn acceptSymbolData(self: *Parser, msg: *?Message) !Symbol.Data {
+fn acceptSymbolData(self: *Parser, msg: *?Message) Error!Symbol.Data {
     const state = self.core.saveState();
     errdefer self.core.restoreState(state);
 
@@ -299,7 +306,7 @@ fn acceptSymbolData(self: *Parser, msg: *?Message) !Symbol.Data {
     };
 }
 
-fn acceptSymbol(self: *Parser, msg: *?Message) !Symbol.Union {
+fn acceptSymbol(self: *Parser, msg: *?Message) Error!Symbol.Union {
     const state = self.core.saveState();
     errdefer self.core.restoreState(state);
 
@@ -320,7 +327,7 @@ fn acceptSymbol(self: *Parser, msg: *?Message) !Symbol.Union {
     return error.UnexpectedToken;
 }
 
-fn acceptBuiltin(self: *Parser, msg: *?Message) anyerror!Builtin {
+fn acceptBuiltin(self: *Parser, msg: *?Message) Error!Builtin {
     const state = self.core.saveState();
     errdefer self.core.restoreState(state);
 
@@ -352,7 +359,7 @@ fn acceptBuiltin(self: *Parser, msg: *?Message) anyerror!Builtin {
     };
 }
 
-fn acceptExpression(self: *Parser, msg: *?Message) !Expression {
+fn acceptExpression(self: *Parser, msg: *?Message) Error!Expression {
     const state = self.core.saveState();
     errdefer self.core.restoreState(state);
 
@@ -514,6 +521,7 @@ test "Parsing symbol constant" {
         if (msg) |value| options.allocator.free(value.msg);
     }
 
+    // FIXME: this works in a file but not here.
     const symbol = @constCast(&init(options, "std = %import(\"std\")", null)).acceptSymbolConstant(&msg) catch |err| {
         std.debug.print("Parser error message: {?any}\n", .{msg});
         return err;
