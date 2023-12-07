@@ -277,32 +277,21 @@ fn acceptBuiltin(self: *Parser, msg: *?Message) anyerror!Builtin {
 
     const token = try self.core.accept(comptime ruleset.is(.@"%"));
     const name = try self.core.accept(comptime ruleset.is(.identifier));
+    const method = Builtin.Method.parse(name.text) orelse return error.InvalidBuiltin;
 
     _ = try self.core.accept(comptime ruleset.is(.@"("));
 
     var params = std.ArrayList(Expression).init(self.options.allocator);
     errdefer params.deinit();
 
-    while (true) {
-        const before = try self.core.peek() orelse return error.EndOfStream;
-        if ((comptime ruleset.is(.@")"))(before.type)) {
-            _ = try self.core.nextToken();
-            break;
-        }
-
+    var i: usize = 0;
+    while (i < method.parameterCount()) : (i += 1) {
         try params.append(try self.acceptExpression(msg));
-
-        const after = try self.core.peek() orelse return error.EndOfStream;
-        if ((comptime ruleset.is(.@")"))(after.type)) {
-            _ = try self.core.nextToken();
-            break;
-        }
-        if ((comptime ruleset.is(.@","))(after.type)) {
-            _ = try self.core.nextToken();
-            continue;
-        }
-        return error.UnexpectedToken;
+        if ((i + 1) == method.parameterCount()) break;
+        _ = try self.core.accept(comptime ruleset.is(.@","));
     }
+
+    _ = try self.core.accept(comptime ruleset.is(.@")"));
 
     return .{
         .location = token.location,
@@ -357,7 +346,7 @@ fn acceptExpression(self: *Parser, msg: *?Message) !Expression {
         },
         .symbol => {
             if ((comptime ruleset.is(.identifier))(token.type)) {
-                const opcode = arch.Opcode.parse(self.options.version, token.text) orelse {
+                const opcode = arch.FullOpcode.parse(self.options.version, token.text) orelse {
                     msg.* = .{
                         .location = token.location,
                         .err = "UnexpectedToken",

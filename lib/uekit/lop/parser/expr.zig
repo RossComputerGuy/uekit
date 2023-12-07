@@ -9,7 +9,7 @@ pub const Expression = union(enum) {
     string: []const u8,
     literal: []const u8,
     instruction: struct {
-        opcode: arch.Opcode,
+        opcode: arch.FullOpcode,
         operands: ?std.ArrayList(*Expression),
     },
 

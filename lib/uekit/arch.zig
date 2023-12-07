@@ -30,7 +30,7 @@ pub const Version = enum {
     }
 };
 
-pub const Opcode = union(enum) {
+pub const Opcode = union(Version) {
     v2: versions.v2.Opcode,
 
     pub fn parse(version: Version, in: []const u8) ?Opcode {
@@ -54,7 +54,46 @@ pub const Opcode = union(enum) {
     }
 };
 
-pub const Instruction = union(enum) {
+pub const PseudoOpcode = enum {
+    jmp,
+    call,
+    ret,
+
+    pub fn parse(in: []const u8) ?PseudoOpcode {
+        inline for (@typeInfo(PseudoOpcode).Enum.fields) |field| {
+            const fieldValue: PseudoOpcode = @enumFromInt(field.value);
+            if (std.mem.eql(u8, field.name, in)) return fieldValue;
+        }
+        return null;
+    }
+
+    pub fn operandCount(self: PseudoOpcode) usize {
+        return switch (self) {
+            .jmp, .call => 1,
+            .ret => 0,
+        };
+    }
+};
+
+pub const FullOpcode = union(enum) {
+    real: Opcode,
+    pseudo: PseudoOpcode,
+
+    pub fn parse(version: Version, in: []const u8) ?FullOpcode {
+        if (PseudoOpcode.parse(in)) |pseudo| return .{ .pseudo = pseudo };
+        if (Opcode.parse(version, in)) |real| return .{ .real = real };
+        return null;
+    }
+
+    pub fn operandCount(self: FullOpcode) usize {
+        return switch (self) {
+            .real => |real| real.operandCount(),
+            .pseudo => |pseudo| pseudo.operandCount(),
+        };
+    }
+};
+
+pub const Instruction = union(Version) {
     v2: versions.v2.Instruction,
 
     const Formatted = struct {
@@ -107,7 +146,7 @@ pub const Instruction = union(enum) {
     }
 };
 
-pub const Register = union(enum) {
+pub const Register = union(Version) {
     v2: versions.v2.Register,
 };
 

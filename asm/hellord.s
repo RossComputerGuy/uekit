@@ -9,8 +9,7 @@ _start:
   bz %offset(%ip(), -1)
   stl consts.TX
   inp
-  scf consts.Z
-  bz .loop
+  jmp .loop
 
 hellord:
   %section("rodata")

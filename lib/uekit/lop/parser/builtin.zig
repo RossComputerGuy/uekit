@@ -17,6 +17,14 @@ pub const Method = enum {
         }
         return null;
     }
+
+    pub fn parameterCount(self: Method) usize {
+        return switch (self) {
+            .ip => 0,
+            .section, .import, .string, .byte => 1,
+            .offset => 2,
+        };
+    }
 };
 
 location: ptk.Location,
