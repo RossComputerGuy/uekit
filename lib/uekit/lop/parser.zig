@@ -7,6 +7,11 @@ pub const Builtin = @import("parser/builtin.zig");
 pub const Expression = @import("parser/expr.zig").Expression;
 pub const Symbol = @import("parser/symbol.zig");
 
+pub const Error = error{
+    UnexpectedToken,
+    EndOfStream,
+} || std.mem.Allocator.Error;
+
 pub const Message = struct {
     location: ptk.Location,
     err: []const u8,
@@ -16,6 +21,38 @@ pub const Message = struct {
         _ = options;
         try writer.print("{} ({s}): {s}", .{ self.location, self.err, self.msg });
     }
+
+    pub inline fn init(allocator: std.mem.Allocator, location: ptk.Location, err: anyerror, comptime fmt: []const u8, args: anytype) !Message {
+        return .{
+            .location = location,
+            .err = @errorName(err),
+            .msg = try std.fmt.allocPrint(allocator, fmt, args),
+        };
+    }
+
+    pub const errors = struct {
+        pub inline fn UnexpectedToken(allocator: std.mem.Allocator, token: Tokenizer.Token, comptime expected: anytype) !Message {
+            return Message.init(allocator, token.location, Error.UnexpectedToken, "{s}, got {s} as {s}", .{
+                if (@typeInfo(@TypeOf(expected)) == .Null) "Unexpected token" else comptime blk: {
+                    const expectedList: [expected.len]TokenType = expected;
+                    var value: []const u8 = "";
+                    if (expectedList.len > 1) value = value ++ "s";
+                    value = value ++ " ";
+                    inline for (expectedList, 0..) |expectedToken, i| {
+                        value = value ++ @tagName(expectedToken);
+                        if ((i + 1) < expectedList.len) value = value ++ ", ";
+                    }
+                    break :blk "Expected token" ++ value;
+                },
+                token.text,
+                @tagName(token.type),
+            });
+        }
+
+        pub inline fn OutOfMemory(allocator: std.mem.Allocator, location: ptk.Location, comptime T: type) !Message {
+            return Message.init(allocator, location, Error.OutOfMemory, "Internal error, failed to allocate {s}", .{@typeName(T)});
+        }
+    };
 };
 
 pub const Options = struct {
@@ -114,7 +151,10 @@ pub fn parse(options: Options, messages: *std.ArrayList(Message), expression: []
     defer options.allocator.destroy(parser);
 
     var syms = std.ArrayList(Symbol.Union).init(options.allocator);
-    errdefer syms.deinit();
+    errdefer {
+        for (syms.items) |sym| sym.deinit();
+        syms.deinit();
+    }
 
     while (try parser.accept(messages)) |sym| try syms.append(sym);
     return syms;
@@ -145,13 +185,12 @@ fn peekDepth(self: *Parser, n: usize) !?Tokenizer.Token {
 fn accept(self: *Parser, messages: *std.ArrayList(Message)) !?Symbol.Union {
     var msg: ?Message = null;
     return self.acceptSymbol(&msg) catch |err| switch (err) {
-        error.EndOfStream => return null,
+        error.EndOfStream => {
+            if (msg) |m| self.options.allocator.free(m.msg);
+            return null;
+        },
         else => {
-            try messages.append(msg orelse .{
-                .location = self.core.tokenizer.current_location,
-                .err = @errorName(err),
-                .msg = "TODO: analyze the error",
-            });
+            try messages.append(msg orelse try Message.init(self.options.allocator, self.tokenizer.current_location, err, "Unrecognized error", .{}));
             return err;
         },
     };
@@ -168,7 +207,12 @@ fn acceptSymbolName(self: *Parser, msg: *?Message) !std.ArrayList(u8) {
 
     while (try self.tokenizer.next()) |token| {
         if (token.type == .@"." or token.type == .identifier) {
-            try list.writer().writeAll(token.text);
+            list.writer().writeAll(token.text) catch |err| {
+                msg.* = switch (err) {
+                    error.OutOfMemory => try Message.errors.OutOfMemory(self.options.allocator, token.location, []const u8),
+                };
+                return err;
+            };
         } else if (token.type == .whitespace) {
             if (list.items.len > 0) break;
         } else {
@@ -177,11 +221,7 @@ fn acceptSymbolName(self: *Parser, msg: *?Message) !std.ArrayList(u8) {
     }
 
     if (list.items.len < 1) {
-        msg.* = .{
-            .location = begin.location,
-            .err = "UnexpectedToken",
-            .msg = try std.fmt.allocPrint(self.options.allocator, "Expected identifier or separator token, got {s} as {s}", .{ begin.text, @tagName(begin.type) }),
-        };
+        msg.* = try Message.errors.UnexpectedToken(self.options.allocator, begin, .{.identifier});
         return error.UnexpectedToken;
     }
     return list;
@@ -195,15 +235,9 @@ fn acceptSymbolConstant(self: *Parser, msg: *?Message) !Symbol.Constant {
     const variable = try self.acceptSymbolName(msg);
     errdefer variable.deinit();
 
-    _ = (try self.core.nextToken()) orelse return error.EndOfStream;
-
     _ = self.core.accept(comptime ruleset.is(.@"=")) catch |err| {
         const token = (try self.core.peek()) orelse return error.EndOfStream;
-        msg.* = .{
-            .location = token.location,
-            .err = "UnexpectedToken",
-            .msg = try std.fmt.allocPrint(self.options.allocator, "Expected equal sign, got {s} as {s}", .{ token.text, @tagName(token.type) }),
-        };
+        msg.* = try Message.errors.UnexpectedToken(self.options.allocator, token, .{.@"="});
         return err;
     };
 
@@ -226,12 +260,17 @@ fn acceptSymbolData(self: *Parser, msg: *?Message) !Symbol.Data {
     const symbol = try self.acceptSymbolName(msg);
     errdefer symbol.deinit();
 
-    _ = (try self.core.nextToken()) orelse return error.EndOfStream;
-
-    _ = try self.core.accept(comptime ruleset.is(.@":"));
+    _ = self.core.accept(comptime ruleset.is(.@":")) catch |err| {
+        const token = (try self.core.peek()) orelse return error.EndOfStream;
+        msg.* = try Message.errors.UnexpectedToken(self.options.allocator, token, .{.@":"});
+        return err;
+    };
 
     var exprs = std.ArrayList(Expression).init(self.options.allocator);
-    errdefer exprs.deinit();
+    errdefer {
+        for (exprs.items) |item| item.deinit();
+        exprs.deinit();
+    }
 
     const prevMode = self.mode;
     self.mode = .symbol;
@@ -243,7 +282,14 @@ fn acceptSymbolData(self: *Parser, msg: *?Message) !Symbol.Data {
             if (tokenSplit.type == .@"=" or tokenSplit.type == .@":") break;
         }
 
-        try exprs.append(try self.acceptExpression(msg));
+        const expr = try self.acceptExpression(msg);
+        errdefer expr.deinit();
+        exprs.append(expr) catch |err| {
+            msg.* = switch (err) {
+                error.OutOfMemory => try Message.errors.OutOfMemory(self.options.allocator, token.location, Expression),
+            };
+            return err;
+        };
     }
 
     return .{
@@ -257,16 +303,7 @@ fn acceptSymbol(self: *Parser, msg: *?Message) !Symbol.Union {
     const state = self.core.saveState();
     errdefer self.core.restoreState(state);
 
-    const beginToken = (try self.core.peek()) orelse return error.EndOfStream;
-    const name = self.acceptSymbolName(msg) catch |err| {
-        msg.* = .{
-            .location = beginToken.location,
-            .err = "UnexpectedToken",
-            .msg = try std.fmt.allocPrint(self.options.allocator, "Expected identifier, got {s} as {s}", .{ beginToken.text, @tagName(beginToken.type) }),
-        };
-        return err;
-    };
-    name.deinit();
+    (try self.acceptSymbolName(msg)).deinit();
 
     const token = (try self.core.nextToken()) orelse return error.EndOfStream;
     self.core.restoreState(state);
@@ -279,11 +316,7 @@ fn acceptSymbol(self: *Parser, msg: *?Message) !Symbol.Union {
         return .{ .data = try self.acceptSymbolData(msg) };
     }
 
-    msg.* = .{
-        .location = token.location,
-        .err = "UnexpectedToken",
-        .msg = try std.fmt.allocPrint(self.options.allocator, "Expected constant assignment or data declaration token, got {s} as {s}", .{ token.text, @tagName(token.type) }),
-    };
+    msg.* = try Message.errors.UnexpectedToken(self.options.allocator, token, .{ .@"=", .@":" });
     return error.UnexpectedToken;
 }
 
@@ -335,7 +368,10 @@ fn acceptExpression(self: *Parser, msg: *?Message) !Expression {
                         'x' => 16,
                         'o' => 8,
                         'b' => 2,
-                        else => return error.UnexpectedToken,
+                        else => {
+                            msg.* = try Message.errors.UnexpectedToken(self.options.allocator, token, .{.identifier});
+                            return error.UnexpectedToken;
+                        },
                     };
 
                     text = id.text[1..];
@@ -346,7 +382,12 @@ fn acceptExpression(self: *Parser, msg: *?Message) !Expression {
     }
 
     if ((comptime ruleset.is(.@"-"))(token.type)) {
-        return .{ .signedNumber = @as(isize, @intCast((try self.acceptExpression(msg)).unsignedNumber)) * @as(isize, -1) };
+        const expr = try self.acceptExpression(msg);
+        if (expr != .unsignedNumber) {
+            msg.* = try Message.errors.UnexpectedToken(self.options.allocator, token, .{.number});
+            return error.UnexpectedToken;
+        }
+        return .{ .signedNumber = @as(isize, @intCast(expr.unsignedNumber)) * @as(isize, -1) };
     }
 
     if ((comptime ruleset.is(.@"%"))(token.type)) {
@@ -500,7 +541,7 @@ test "Parsing symbol data" {
         if (msg) |value| options.allocator.free(value.msg);
     }
 
-    const symbol = @constCast(&init(options, "loop:\n\tjmp loop", null)).acceptSymbolData(&msg) catch |err| {
+    const symbol = @constCast(&init(options, "loop:\n\tscf\n\tbz loop\n", null)).acceptSymbolData(&msg) catch |err| {
         std.debug.print("Parser error message: {?any}\n", .{msg});
         return err;
     };

@@ -58,6 +58,11 @@ pub const PseudoOpcode = enum {
     jmp,
     call,
     ret,
+    add,
+    sub,
+    mul,
+    div,
+    mod,
 
     pub fn parse(in: []const u8) ?PseudoOpcode {
         inline for (@typeInfo(PseudoOpcode).Enum.fields) |field| {
@@ -69,8 +74,8 @@ pub const PseudoOpcode = enum {
 
     pub fn operandCount(self: PseudoOpcode) usize {
         return switch (self) {
-            .jmp, .call => 1,
             .ret => 0,
+            else => 1,
         };
     }
 };
