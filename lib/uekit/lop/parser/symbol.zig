@@ -43,6 +43,20 @@ pub const Union = union(enum) {
     constant: Constant,
     data: Data,
 
+    pub inline fn location(self: Union) ptk.Location {
+        return switch (self) {
+            .constant => |c| c.location,
+            .data => |d| d.location,
+        };
+    }
+
+    pub inline fn name(self: Union) std.ArrayList(u8) {
+        return switch (self) {
+            .constant => |c| c.name,
+            .data => |d| d.name,
+        };
+    }
+
     pub fn deinit(self: Union) void {
         return switch (self) {
             .constant => |c| c.deinit(),

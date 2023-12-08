@@ -14,11 +14,11 @@ pub fn path(in: []const u8) error{ Unexpected, OutOfMemory, CurrentWorkingDirect
     };
 }
 
-pub fn mod(in: []const u8) error{ Unexpected, OutOfMemory, CurrentWorkingDirectoryUnlinked, NoSeparator }!struct { []const u8, []const u8 } {
+pub fn mod(in: []const u8) error{ Unexpected, OutOfMemory, CurrentWorkingDirectoryUnlinked, NoSeparator }!uekit.lop.Assembler.Module {
     const s = std.mem.indexOf(u8, in, "=") orelse return error.NoSeparator;
     return .{
-        in[0..s],
-        try path(in[(s + 1)..]),
+        .name = in[0..s],
+        .path = try path(in[(s + 1)..]),
     };
 }
 

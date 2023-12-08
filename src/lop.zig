@@ -28,20 +28,13 @@ pub fn main() !void {
     if (res.args.help != 0 or res.positionals.len != 1)
         return clap.help(stderr, clap.Help, &params, .{});
 
-    const file = try std.fs.openFileAbsolute(res.positionals[0], .{});
-    defer file.close();
-
-    const fileSize = (try file.metadata()).size();
-    const code = try file.readToEndAlloc(common.allocator, fileSize);
-    defer common.allocator.free(code);
-
     var messages = std.ArrayList(uekit.lop.Parser.Message).init(common.allocator);
     defer messages.deinit();
 
-    var syms = uekit.lop.Parser.parse(.{
+    const @"asm" = uekit.lop.Assembler.create(.{
         .version = res.args.version orelse .v2,
         .allocator = common.allocator,
-    }, &messages, code, res.positionals[0]) catch |err| {
+    }, res.args.module, res.positionals[0], &messages) catch |err| {
         try stderr.print("Errors:\n", .{});
         for (messages.items) |msg| {
             try stderr.print("\t{}\n", .{msg});
@@ -49,10 +42,7 @@ pub fn main() !void {
         }
         return err;
     };
-    defer {
-        for (syms.items) |sym| sym.deinit();
-        syms.deinit();
-    }
+    defer @"asm".deinit();
 
-    for (syms.items) |sym| try stderr.print("{}\n", .{sym});
+    for (@"asm".imports.items) |imp| try stderr.print("{}\n", .{imp});
 }

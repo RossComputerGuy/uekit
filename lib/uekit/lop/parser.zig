@@ -12,6 +12,7 @@ pub const Error = error{
     InvalidBuiltin,
     UnexpectedToken,
     UnexpectedCharacter,
+    DuplicateSymbol,
     EndOfStream,
 } || std.mem.Allocator.Error || std.fmt.ParseIntError;
 
@@ -54,6 +55,10 @@ pub const Message = struct {
 
         pub inline fn OutOfMemory(allocator: std.mem.Allocator, location: ptk.Location, comptime T: type) !Message {
             return Message.init(allocator, location, Error.OutOfMemory, "Internal error, failed to allocate {s}", .{@typeName(T)});
+        }
+
+        pub inline fn DuplicateSymbol(allocator: std.mem.Allocator, location: ptk.Location, orig: ptk.Location) !Message {
+            return Message.init(allocator, location, Error.DuplicateSymbol, "Symbol already exists at {}", .{orig});
         }
     };
 };
@@ -159,7 +164,18 @@ pub fn parse(options: Options, messages: *std.ArrayList(Message), expression: []
         syms.deinit();
     }
 
-    while (try parser.accept(messages)) |sym| try syms.append(sym);
+    while (try parser.accept(messages)) |sym| {
+        errdefer sym.deinit();
+
+        for (syms.items) |s| {
+            if (std.mem.eql(u8, s.name().items, sym.name().items)) {
+                try messages.append(try Message.errors.DuplicateSymbol(options.allocator, sym.location(), s.location()));
+                return error.DuplicateSymbol;
+            }
+        }
+
+        try syms.append(sym);
+    }
     return syms;
 }
 
