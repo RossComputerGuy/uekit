@@ -12,6 +12,7 @@ pub fn main() !void {
         \\-m, --module <mod>...  Adds a module to be available as an import.
         \\-o, --output <path>    Sets the binary output path (default: a.out).
         \\-s, --sym <path>       Sets the symbol table output path.
+        \\-e, --entrypoint <str> Sets the entrypoint of the executable.
         \\<path>                 Path to the root assembly file.
         \\
     );
@@ -34,6 +35,7 @@ pub fn main() !void {
     const @"asm" = uekit.lop.Assembler.create(.{
         .version = res.args.version orelse .v2,
         .allocator = common.allocator,
+        .entrypoint = res.args.entrypoint orelse "root._start",
     }, res.args.module, res.positionals[0], &messages) catch |err| {
         try stderr.print("Errors:\n", .{});
         for (messages.items) |msg| {
@@ -45,4 +47,6 @@ pub fn main() !void {
     defer @"asm".deinit();
 
     for (@"asm".imports.items) |imp| try stderr.print("{}\n", .{imp});
+
+    try stderr.print("Entrypoint: {}\n", .{@"asm".entrypoint});
 }
