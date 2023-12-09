@@ -79,6 +79,7 @@ pub const Instruction = packed struct {
 pub const maxAddress = std.math.maxInt(u12);
 pub const maxData = std.math.maxInt(u12);
 pub const endian = std.builtin.Endian.big;
+pub const clockrate: usize = 50_000;
 
 test "Instruction decoding" {
     const buff = &[_]u8{ 0x70, 0x10 };

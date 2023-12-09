@@ -14,10 +14,12 @@ pub const MemoryReader = std.io.Reader(*Emulator, anyerror, read);
 pub const Options = struct {
     allocator: Allocator,
     version: arch.Version,
+    clockrate: ?usize = null,
 };
 
 allocator: Allocator,
 version: arch.Version,
+clockrate: ?usize = null,
 registers: []Register,
 mmu: *Mmu,
 instr: ?arch.Instruction,
@@ -30,6 +32,7 @@ pub fn create(options: Options) !*Emulator {
     self.* = .{
         .allocator = options.allocator,
         .version = options.version,
+        .clockrate = options.clockrate orelse options.version.clockrate(),
         .registers = undefined,
         .pc = 0,
         .mmu = undefined,
@@ -111,16 +114,35 @@ pub fn exec(self: *Emulator, instr: arch.Instruction) !void {
     return error.InvalidVersion;
 }
 
-pub fn run(self: *Emulator) !void {
-    while (try self.fetch()) |instr| {
+pub fn step(self: *Emulator) !bool {
+    if (try self.fetch()) |instr| {
         self.instr = instr;
         self.exec(instr) catch |err| switch (err) {
-            error.Halt => break,
+            error.Halt => return false,
             else => return err,
         };
+        return true;
     }
+    return false;
+}
 
-    self.instr = null;
+pub fn run(self: *Emulator) !void {
+    defer self.instr = null;
+
+    if (self.clockrate) |clockrate| {
+        var lastTime = std.time.timestamp();
+        while (true) {
+            const currTime = std.time.timestamp();
+            const deltaTime: f64 = std.math.lossyCast(f64, currTime - lastTime);
+            const target: f64 = @as(f64, 1.0) / std.math.lossyCast(f64, clockrate);
+            if (deltaTime >= target) {
+                if (!(try self.step())) break;
+                lastTime = currTime;
+            }
+        }
+    } else {
+        while (try self.step()) {}
+    }
 }
 
 pub fn format(self: *const Emulator, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {

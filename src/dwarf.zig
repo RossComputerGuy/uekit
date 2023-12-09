@@ -8,6 +8,7 @@ pub fn main() !void {
     const params = comptime clap.parseParamsComptime(
         \\-h, --help             Display this help and exit.
         \\-e, --exec <path>      Loads the path to the binary into the emulator.
+        \\-c, --clock <usize>    Sets the emulated clock speed in Hz.
         \\-v, --version <ver>    Sets the UE version to run the emulator as.
         \\
     );
@@ -27,6 +28,7 @@ pub fn main() !void {
     const emu = try uekit.dwarf.Emulator.create(.{
         .allocator = std.heap.page_allocator,
         .version = res.args.version orelse .v2,
+        .clockrate = res.args.clock,
     });
     defer emu.deinit();
 
