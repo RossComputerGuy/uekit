@@ -32,7 +32,7 @@ pub fn create(options: Options) !*Emulator {
     self.* = .{
         .allocator = options.allocator,
         .version = options.version,
-        .clockrate = options.clockrate orelse options.version.clockrate(),
+        .clockrate = options.clockrate,
         .registers = undefined,
         .pc = 0,
         .mmu = undefined,
@@ -130,11 +130,11 @@ pub fn run(self: *Emulator) !void {
     defer self.instr = null;
 
     if (self.clockrate) |clockrate| {
-        var lastTime = std.time.timestamp();
+        var lastTime = std.math.lossyCast(f128, std.time.nanoTimestamp()) / @as(f128, 1_000_000_000);
         while (true) {
-            const currTime = std.time.timestamp();
-            const deltaTime: f64 = std.math.lossyCast(f64, currTime - lastTime);
-            const target: f64 = @as(f64, 1.0) / std.math.lossyCast(f64, clockrate);
+            const currTime = std.math.lossyCast(f128, std.time.nanoTimestamp()) / @as(f128, 1_000_000_000);
+            const deltaTime = std.math.lossyCast(f128, currTime - lastTime);
+            const target = @as(f128, 1.0) / std.math.lossyCast(f128, clockrate);
             if (deltaTime >= target) {
                 if (!(try self.step())) break;
                 lastTime = currTime;
