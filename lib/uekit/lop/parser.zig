@@ -53,6 +53,22 @@ pub const Message = struct {
             });
         }
 
+        pub inline fn EndOfStream(allocator: std.mem.Allocator, location: ptk.Location, comptime expected: anytype) !Message {
+            return Message.init(allocator, location, Error.EndOfStream, "{s}, got end of stream", .{
+                if (@typeInfo(@TypeOf(expected)) == .Null) "End of stream" else comptime blk: {
+                    const expectedList: [expected.len]TokenType = expected;
+                    var value: []const u8 = "";
+                    if (expectedList.len > 1) value = value ++ "s";
+                    value = value ++ " ";
+                    inline for (expectedList, 0..) |expectedToken, i| {
+                        value = value ++ @tagName(expectedToken);
+                        if ((i + 1) < expectedList.len) value = value ++ ", ";
+                    }
+                    break :blk "Expected token" ++ value;
+                },
+            });
+        }
+
         pub inline fn OutOfMemory(allocator: std.mem.Allocator, location: ptk.Location, comptime T: type) !Message {
             return Message.init(allocator, location, Error.OutOfMemory, "Internal error, failed to allocate {s}", .{@typeName(T)});
         }
@@ -112,12 +128,12 @@ pub const Tokenizer = ptk.Tokenizer(TokenType, &[_]Pattern{
 const ParserCore = ptk.ParserCore(Tokenizer, .{ .whitespace, .linefeed });
 const ruleset = ptk.RuleSet(TokenType);
 
-const Mode = enum {
+pub const Mode = enum {
     normal,
     symbol,
 };
 
-const State = struct {
+pub const State = struct {
     mode: Mode = .normal,
     core: ParserCore.State,
 };
@@ -174,7 +190,16 @@ pub fn parse(options: Options, messages: *std.ArrayList(Message), expression: []
             }
         }
 
+        const hasNext = if (syms.items.len > 0) blk: {
+            const s = syms.items[syms.items.len - 1];
+            break :blk s == .data and s.data.next != null;
+        } else false;
+
         try syms.append(sym);
+
+        if (sym == .data and std.mem.startsWith(u8, ".", sym.name().items) and hasNext) {
+            syms.items[syms.items.len - 1].data.prev = try syms.items[syms.items.len - 2].data.name.clone();
+        }
     }
     return syms;
 }
@@ -191,6 +216,22 @@ fn restoreState(self: *Parser, state: State) void {
     self.core.restoreState(state.core);
 }
 
+fn peekUnfiltered(self: *Parser) !?Tokenizer.Token {
+    const state = self.saveState();
+    defer self.restoreState(state);
+    return try self.tokenizer.next();
+}
+
+fn peekDepthUnfiltered(self: *Parser, n: usize) !?Tokenizer.Token {
+    const state = self.saveState();
+    defer self.restoreState(state);
+
+    var token: ?Tokenizer.Token = null;
+    var i: usize = 0;
+    while (i < n) : (i += 1) token = try self.tokenizer.next();
+    return token;
+}
+
 fn peekDepth(self: *Parser, n: usize) !?Tokenizer.Token {
     const state = self.saveState();
     defer self.restoreState(state);
@@ -205,8 +246,7 @@ fn accept(self: *Parser, messages: *std.ArrayList(Message)) Error!?Symbol.Union 
     var msg: ?Message = null;
     return self.acceptSymbol(&msg) catch |err| switch (err) {
         error.EndOfStream => {
-            if (msg) |m| self.options.allocator.free(m.msg);
-            return null;
+            return if (msg != null) err else null;
         },
         else => {
             try messages.append(msg orelse try Message.init(self.options.allocator, self.tokenizer.current_location, err, "Unrecognized error", .{}));
@@ -259,7 +299,10 @@ fn acceptSymbolConstant(self: *Parser, msg: *?Message) Error!Symbol.Constant {
     errdefer variable.deinit();
 
     _ = self.core.accept(comptime ruleset.is(.@"=")) catch |err| {
-        const token = (try self.core.peek()) orelse return error.EndOfStream;
+        const token = (try self.core.peek()) orelse {
+            msg.* = try Message.errors.EndOfStream(self.options.allocator, self.core.tokenizer.current_location, .{.@"="});
+            return error.EndOfStream;
+        };
         msg.* = try Message.errors.UnexpectedToken(self.options.allocator, token, .{.@"="});
         return err;
     };
@@ -284,7 +327,10 @@ fn acceptSymbolData(self: *Parser, msg: *?Message) Error!Symbol.Data {
     errdefer symbol.deinit();
 
     _ = self.core.accept(comptime ruleset.is(.@":")) catch |err| {
-        const token = (try self.core.peek()) orelse return error.EndOfStream;
+        const token = (try self.core.peek()) orelse {
+            msg.* = try Message.errors.EndOfStream(self.options.allocator, self.core.tokenizer.current_location, .{.@"="});
+            return error.EndOfStream;
+        };
         msg.* = try Message.errors.UnexpectedToken(self.options.allocator, token, .{.@":"});
         return err;
     };
@@ -319,6 +365,16 @@ fn acceptSymbolData(self: *Parser, msg: *?Message) Error!Symbol.Data {
         .location = location,
         .name = symbol,
         .expressions = exprs,
+        .next = if (try self.peekDepthUnfiltered(2)) |token| blk: {
+            if (token.type == .@".") {
+                const s = self.core.saveState();
+                const name = try self.acceptSymbolName(msg);
+                self.core.restoreState(s);
+                break :blk name;
+            }
+            break :blk null;
+        } else null,
+        .prev = null,
     };
 }
 

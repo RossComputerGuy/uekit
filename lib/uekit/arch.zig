@@ -1,4 +1,6 @@
 const std = @import("std");
+const assert = std.debug.assert;
+const lop = @import("lop.zig");
 
 pub const versions = struct {
     pub const v2 = @import("arch/v2.zig");
@@ -88,6 +90,29 @@ pub const PseudoOpcode = enum {
             .ret => 0,
             else => 1,
         };
+    }
+
+    pub fn appendInstructions(self: PseudoOpcode, version: Version, instrs: ?*std.ArrayList(Instruction), addr: usize) !usize {
+        inline for (@typeInfo(Version).Enum.fields) |field| {
+            const fieldValue: Version = @enumFromInt(field.value);
+            if (version == fieldValue) {
+                const archImpl = @field(versions, field.name);
+
+                if (instrs) |list| {
+                    var tmp = std.ArrayList(archImpl.Instruction).init(list.allocator);
+                    defer tmp.deinit();
+
+                    const count = try archImpl.PseudoOpcode.appendInstructions(self, &tmp, addr);
+                    assert(count == tmp.items.len);
+
+                    for (tmp.items) |instr| try list.append(@unionInit(Instruction, field.name, instr));
+                    return tmp.items.len;
+                } else {
+                    return try archImpl.PseudoOpcode.appendInstructions(self, null, addr);
+                }
+            }
+        }
+        unreachable;
     }
 };
 

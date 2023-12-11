@@ -7,9 +7,7 @@ pub const Method = enum {
     section,
     import,
     offset,
-    string,
     ip,
-    byte,
 
     pub fn parse(in: []const u8) ?Method {
         inline for (@typeInfo(Method).Enum.fields) |field| {
@@ -22,7 +20,7 @@ pub const Method = enum {
     pub fn parameterCount(self: Method) usize {
         return switch (self) {
             .ip => 0,
-            .section, .import, .string, .byte => 1,
+            .section, .import => 1,
             .offset => 2,
         };
     }

@@ -13,6 +13,5 @@ _start:
 
 hellord:
   %section("rodata")
-  %string("Hellord\n")
-zero:
-  %byte(0)
+  "Hellord\n"
+zero: 0

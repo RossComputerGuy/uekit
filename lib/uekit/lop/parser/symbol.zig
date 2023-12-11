@@ -1,5 +1,6 @@
 const ptk = @import("parser-toolkit");
 const std = @import("std");
+const arch = @import("../../arch.zig");
 const Expression = @import("expr.zig").Expression;
 
 pub const Constant = struct {
@@ -24,18 +25,76 @@ pub const Data = struct {
     location: ptk.Location,
     name: std.ArrayList(u8),
     expressions: std.ArrayList(Expression),
+    next: ?std.ArrayList(u8),
+    prev: ?std.ArrayList(u8),
+
+    pub const Kind = enum {
+        code,
+        value,
+        mixed,
+    };
 
     pub fn deinit(self: Data) void {
         self.name.deinit();
         for (self.expressions.items) |expr| expr.deinit();
         self.expressions.deinit();
+
+        if (self.next) |n| n.deinit();
+        if (self.prev) |p| p.deinit();
     }
 
     pub fn format(self: Data, comptime _: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
 
         try writer.writeAll(@typeName(Data));
-        try writer.print("{{ .location = {}, .name = {s}, .expressions = {any} }}", .{ self.location, self.name.items, self.expressions.items });
+        try writer.print("{{ .location = {}, .name = {s}, .expressions = {any}, ", .{ self.location, self.name.items, self.expressions.items });
+
+        try writer.writeAll(".next = ");
+        try writer.writeAll(if (self.next) |n| n.items else "null");
+
+        try writer.writeAll(", .prev = ");
+        try writer.writeAll(if (self.prev) |p| p.items else "null");
+        try writer.writeAll(" }");
+    }
+
+    pub fn size(self: Data, version: arch.Version) usize {
+        var value: usize = 0;
+        for (self.expressions.items) |expr| {
+            value += switch (expr) {
+                .instruction => |instr| @as(usize, switch (instr.opcode) {
+                    .real => 1,
+                    .pseudo => |pseudo| pseudo.appendInstructions(version, null, 0) catch @panic("Expected no errors"),
+                }) * version.instructionSize(),
+                .literal => 0,
+                .builtin => 0,
+                .unsignedNumber, .signedNumber => 1,
+                .string => |str| str.items.len,
+            };
+        }
+        return value;
+    }
+
+    pub fn kind(self: Data) Kind {
+        var icount: usize = 0;
+        for (self.expressions.items) |expr| {
+            if (expr == .instruction) icount += 1;
+        }
+
+        return if (icount == self.expressions.items.len) .code else if (icount == 0 and self.expressions.items.len > 0) .value else .mixed;
+    }
+
+    pub fn section(self: Data) []const u8 {
+        if (self.expressions.items.len >= 1) {
+            if (self.expressions.items[0] == .builtin) {
+                if (self.expressions.items[0].builtin.method == .section) return self.expressions.items[0].builtin.params.items[0].string.items;
+            }
+        }
+
+        return switch (self.kind()) {
+            .code => "code",
+            .value => "data",
+            .mixed => "rodata",
+        };
     }
 };
 

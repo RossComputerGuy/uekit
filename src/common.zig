@@ -50,4 +50,5 @@ pub const parsers = .{
     .path = path,
     .module = mod,
     .mod = mod,
+    .ofmt = clap.parsers.enumeration(uekit.lop.Assembler.OutputFormat),
 };

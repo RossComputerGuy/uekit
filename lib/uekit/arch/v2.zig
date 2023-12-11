@@ -1,5 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const lop = @import("../lop.zig");
+const toplevelArch = @import("../arch.zig");
 
 pub const Register = union {
     rra: u8,
@@ -80,6 +82,21 @@ pub const maxAddress = std.math.maxInt(u12);
 pub const maxData = std.math.maxInt(u12);
 pub const endian = std.builtin.Endian.big;
 pub const clockrate: usize = 5_000_000_000;
+
+pub const PseudoOpcode = struct {
+    pub fn appendInstructions(self: toplevelArch.PseudoOpcode, instrs: ?*std.ArrayList(Instruction), addr: usize) !usize {
+        switch (self) {
+            .jmp => {
+                if (instrs) |list| {
+                    try list.append(.{ .opcode = .scf, .address = 2 });
+                    try list.append(.{ .opcode = .bz, .address = @intCast(addr) });
+                }
+                return 2;
+            },
+            else => return error.Unimplemented,
+        }
+    }
+};
 
 test "Instruction decoding" {
     const buff = &[_]u8{ 0x70, 0x10 };

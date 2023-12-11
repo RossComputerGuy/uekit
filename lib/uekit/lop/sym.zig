@@ -1,1 +1,0 @@
-const Symbol = @This();

@@ -3,7 +3,14 @@ const Allocator = std.mem.Allocator;
 const arch = @import("../arch.zig");
 const ptk = @import("parser-toolkit");
 const Parser = @import("parser.zig");
+const metap = @import("meta+");
+const SymbolTable = @import("symtbl.zig");
 const Assembler = @This();
+
+pub const OutputFormat = enum {
+    usagi,
+    binary,
+};
 
 pub const Module = struct {
     name: []const u8,
@@ -44,7 +51,7 @@ pub const Import = struct {
     }
 
     pub fn symbol(self: Import, symbolName: []const u8) ?*Parser.Symbol.Union {
-        const end = std.mem.indexOf(u8, symbolName, ".") orelse symbolName.len;
+        const end = if (std.mem.indexOf(u8, symbolName, ".")) |i| if (i > 0) i else symbolName.len else symbolName.len;
         for (self.symbols.items) |*sym| {
             if (std.mem.eql(u8, sym.name().items, symbolName[0..end])) {
                 return sym;
@@ -78,7 +85,8 @@ pub const Options = struct {
 
 version: arch.Version,
 imports: std.ArrayList(Import),
-entrypoint: Parser.Symbol.Data,
+symbols: std.ArrayList(*Parser.Symbol.Data),
+entrypoint: *Parser.Symbol.Data,
 
 pub fn create(options: Options, modules: []const Module, root: []const u8, messages: *std.ArrayList(Parser.Message)) !*Assembler {
     const self = try options.allocator.create(Assembler);
@@ -87,6 +95,7 @@ pub fn create(options: Options, modules: []const Module, root: []const u8, messa
     self.* = .{
         .version = options.version,
         .imports = std.ArrayList(Import).init(options.allocator),
+        .symbols = std.ArrayList(*Parser.Symbol.Data).init(options.allocator),
         .entrypoint = undefined,
     };
     errdefer self.deinit();
@@ -123,7 +132,8 @@ pub fn create(options: Options, modules: []const Module, root: []const u8, messa
                 return error.InvalidEntrypoint;
             }
 
-            self.entrypoint = entrypoint.data;
+            self.entrypoint = &entrypoint.data;
+            try self.addDataSymbol(self.entrypoint, messages);
         } else {
             try messages.append(try Parser.Message.init(options.allocator, .{
                 .source = source.file,
@@ -134,6 +144,72 @@ pub fn create(options: Options, modules: []const Module, root: []const u8, messa
         }
     }
     return self;
+}
+
+const SymbolError = error{
+    Unexpected,
+    UnexpectedExpression,
+    CurrentWorkingDirectoryUnlinked,
+    InvalidPath,
+    InvalidSymbol,
+    InvalidImport,
+} || Allocator.Error;
+
+fn hasDataSymbol(self: *Assembler, sym: *Parser.Symbol.Data) bool {
+    for (self.symbols.items) |s| {
+        if ((sym.location.source == null and s.location.source != null) or (sym.location.source != null and s.location.source == null)) continue;
+
+        if (std.mem.eql(u8, sym.location.source.?, s.location.source.?) and sym.location.line == s.location.line and sym.location.column == s.location.column) {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn addDataSymbolForExpression(self: *Assembler, imported: *Import, expr: *Parser.Expression, mode: Parser.Mode, messages: *std.ArrayList(Parser.Message)) SymbolError!void {
+    switch (mode) {
+        .symbol => switch (expr.*) {
+            .instruction => |instr| {
+                if (instr.operands) |operands| {
+                    for (operands.items) |operand| {
+                        try self.addDataSymbolForExpression(imported, operand, .normal, messages);
+                    }
+                }
+            },
+            .builtin => {},
+            else => {},
+        },
+        .normal => {
+            if (expr.* == .literal) {
+                if (imported.symbol(expr.literal.items) orelse try self.lookupSymbol(imported, expr.literal.items)) |sym| {
+                    if (sym.* == .data) try self.addDataSymbol(&sym.data, messages);
+                } else {
+                    std.debug.print("{}\n", .{imported.symbols.items[imported.symbols.items.len - 1]});
+                    return error.InvalidSymbol;
+                }
+            }
+        },
+    }
+}
+
+fn addDataSymbol(self: *Assembler, sym: *Parser.Symbol.Data, messages: *std.ArrayList(Parser.Message)) SymbolError!void {
+    if (self.hasDataSymbol(sym)) return;
+
+    const imported = self.lookupImportByPath(sym.location.source.?) orelse return error.InvalidImport;
+
+    if (sym.next) |n| {
+        for (imported.symbols.items) |*s| {
+            if (std.mem.eql(u8, n.items, s.name().items) and s.* == .data) {
+                try self.addDataSymbol(&s.data, messages);
+                break;
+            }
+        }
+    }
+
+    try self.symbols.append(sym);
+    for (sym.expressions.items) |*expr| {
+        try self.addDataSymbolForExpression(imported, expr, .symbol, messages);
+    }
 }
 
 pub fn lookupSymbol(self: *Assembler, imported: *Import, name: []const u8) !?*Parser.Symbol.Union {
@@ -245,8 +321,39 @@ pub fn import(self: *Assembler, module: Module, path: []const u8, messages: *std
     return imp;
 }
 
+pub const WriteOptions = struct {
+    file: std.fs.File,
+    address: usize = 0,
+};
+
+pub fn writeBinary(self: *Assembler, options: WriteOptions) !SymbolTable {
+    _ = options;
+
+    var symtbl = try SymbolTable.init(self.imports.allocator);
+    errdefer symtbl.deinit();
+
+    var codeEnd: usize = 0;
+    for (self.symbols.items) |sym| {
+        if (std.mem.eql(u8, sym.section(), "code")) {
+            codeEnd += sym.size(self.version);
+        }
+    }
+
+    std.debug.print("{}\n", .{codeEnd});
+
+    return symtbl;
+}
+
+pub fn write(self: *Assembler, options: WriteOptions, fmt: OutputFormat) !SymbolTable {
+    return switch (fmt) {
+        .binary => self.writeBinary(options),
+        else => error.InvalidOutputFormat,
+    };
+}
+
 pub fn deinit(self: *Assembler) void {
     for (self.imports.items) |imp| imp.deinit();
     self.imports.deinit();
+    self.symbols.deinit();
     self.imports.allocator.destroy(self);
 }

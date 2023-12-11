@@ -7,13 +7,14 @@ pub fn main() !void {
     const stderr = common.getStdErr();
 
     const params = comptime clap.parseParamsComptime(
-        \\-h, --help             Display this help and exit.
-        \\-v, --version <ver>    Sets the UE version to dissasemble the binary as.
-        \\-m, --module <mod>...  Adds a module to be available as an import.
-        \\-o, --output <path>    Sets the binary output path (default: a.out).
-        \\-s, --sym <path>       Sets the symbol table output path.
-        \\-e, --entrypoint <str> Sets the entrypoint of the executable.
-        \\<path>                 Path to the root assembly file.
+        \\-h, --help                 Display this help and exit.
+        \\-v, --version <ver>        Sets the UE version to dissasemble the binary as.
+        \\-m, --module <mod>...      Adds a module to be available as an import.
+        \\-o, --output <path>        Sets the binary output path (default: a.out).
+        \\-f, --output-format <ofmt> Sets the output format.
+        \\-s, --sym <path>           Sets the symbol table output path.
+        \\-e, --entrypoint <str>     Sets the entrypoint of the executable.
+        \\<path>                     Path to the root assembly file.
         \\
     );
 
@@ -46,7 +47,11 @@ pub fn main() !void {
     };
     defer @"asm".deinit();
 
-    for (@"asm".imports.items) |imp| try stderr.print("{}\n", .{imp});
+    const file = try std.fs.createFileAbsolute(res.args.output orelse try common.path("a.out"), .{});
+    defer file.close();
 
-    try stderr.print("Entrypoint: {}\n", .{@"asm".entrypoint});
+    const symtbl = try @"asm".write(.{
+        .file = file,
+    }, res.args.@"output-format" orelse .binary);
+    defer symtbl.deinit();
 }
