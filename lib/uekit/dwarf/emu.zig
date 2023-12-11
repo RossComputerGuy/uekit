@@ -127,8 +127,6 @@ pub fn step(self: *Emulator) !bool {
 }
 
 pub fn run(self: *Emulator) !void {
-    defer self.instr = null;
-
     if (self.clockrate) |clockrate| {
         var lastTime = std.math.lossyCast(f128, std.time.nanoTimestamp()) / @as(f128, 1_000_000_000);
         while (true) {
@@ -143,6 +141,8 @@ pub fn run(self: *Emulator) !void {
     } else {
         while (try self.step()) {}
     }
+
+    self.instr = null;
 }
 
 pub fn format(self: *const Emulator, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
