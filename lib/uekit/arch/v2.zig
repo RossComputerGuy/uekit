@@ -45,8 +45,8 @@ pub const Opcode = enum(u4) {
 };
 
 pub const Instruction = packed struct {
-    opcode: Opcode,
     address: u12,
+    opcode: Opcode,
 
     pub fn format(self: Instruction, comptime _: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
@@ -55,8 +55,7 @@ pub const Instruction = packed struct {
     }
 
     pub inline fn write(self: Instruction, writer: anytype) !void {
-        try writer.writeInt(u4, self.opcode, endian);
-        try writer.writeInt(u12, self.address, endian);
+        try writer.writeInt(u16, @bitCast(self), endian);
     }
 
     pub inline fn readOrNull(reader: anytype) anyerror!?Instruction {
@@ -78,18 +77,20 @@ pub const Instruction = packed struct {
     }
 };
 
+pub const addressBits: usize = 12;
+pub const dataBits: usize = 12;
 pub const maxAddress = std.math.maxInt(u12);
 pub const maxData = std.math.maxInt(u12);
 pub const endian = std.builtin.Endian.big;
 pub const clockrate: usize = 5_000_000_000;
 
 pub const PseudoOpcode = struct {
-    pub fn appendInstructions(self: toplevelArch.PseudoOpcode, instrs: ?*std.ArrayList(Instruction), addr: usize) !usize {
+    pub fn appendInstructions(self: toplevelArch.PseudoOpcode, instrs: ?*std.ArrayList(Instruction), addrs: []usize) !usize {
         switch (self) {
             .jmp => {
                 if (instrs) |list| {
                     try list.append(.{ .opcode = .scf, .address = 2 });
-                    try list.append(.{ .opcode = .bz, .address = @intCast(addr) });
+                    try list.append(.{ .opcode = .bz, .address = if (addrs.len == 1) @intCast(addrs[0]) else 0 });
                 }
                 return 2;
             },

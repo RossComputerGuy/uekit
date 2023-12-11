@@ -47,7 +47,13 @@ pub const Data = struct {
         _ = options;
 
         try writer.writeAll(@typeName(Data));
-        try writer.print("{{ .location = {}, .name = {s}, .expressions = {any}, ", .{ self.location, self.name.items, self.expressions.items });
+        try writer.print("{{ .location = {}, .name = {s}, .expressions = {any}, .kind = {s}, .section = {s}, ", .{
+            self.location,
+            self.name.items,
+            self.expressions.items,
+            @tagName(self.kind()),
+            self.section(),
+        });
 
         try writer.writeAll(".next = ");
         try writer.writeAll(if (self.next) |n| n.items else "null");
@@ -63,7 +69,7 @@ pub const Data = struct {
             value += switch (expr) {
                 .instruction => |instr| @as(usize, switch (instr.opcode) {
                     .real => 1,
-                    .pseudo => |pseudo| pseudo.appendInstructions(version, null, 0) catch @panic("Expected no errors"),
+                    .pseudo => |pseudo| pseudo.appendInstructions(version, null, &.{}) catch @panic("Expected no errors"),
                 }) * version.instructionSize(),
                 .literal => 0,
                 .builtin => 0,

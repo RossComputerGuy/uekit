@@ -20,6 +20,28 @@ pub const Version = enum {
         unreachable;
     }
 
+    pub fn addressBits(self: Version) usize {
+        inline for (@typeInfo(Version).Enum.fields) |field| {
+            const fieldValue: Version = @enumFromInt(field.value);
+            if (self == fieldValue) {
+                const archImpl = @field(versions, field.name);
+                return archImpl.addressBits;
+            }
+        }
+        unreachable;
+    }
+
+    pub fn dataBits(self: Version) usize {
+        inline for (@typeInfo(Version).Enum.fields) |field| {
+            const fieldValue: Version = @enumFromInt(field.value);
+            if (self == fieldValue) {
+                const archImpl = @field(versions, field.name);
+                return archImpl.dataBits;
+            }
+        }
+        unreachable;
+    }
+
     pub fn clockrate(self: Version) usize {
         inline for (@typeInfo(Version).Enum.fields) |field| {
             const fieldValue: Version = @enumFromInt(field.value);
@@ -92,7 +114,7 @@ pub const PseudoOpcode = enum {
         };
     }
 
-    pub fn appendInstructions(self: PseudoOpcode, version: Version, instrs: ?*std.ArrayList(Instruction), addr: usize) !usize {
+    pub fn appendInstructions(self: PseudoOpcode, version: Version, instrs: ?*std.ArrayList(Instruction), addrs: []usize) !usize {
         inline for (@typeInfo(Version).Enum.fields) |field| {
             const fieldValue: Version = @enumFromInt(field.value);
             if (version == fieldValue) {
@@ -102,13 +124,13 @@ pub const PseudoOpcode = enum {
                     var tmp = std.ArrayList(archImpl.Instruction).init(list.allocator);
                     defer tmp.deinit();
 
-                    const count = try archImpl.PseudoOpcode.appendInstructions(self, &tmp, addr);
+                    const count = try archImpl.PseudoOpcode.appendInstructions(self, &tmp, addrs);
                     assert(count == tmp.items.len);
 
                     for (tmp.items) |instr| try list.append(@unionInit(Instruction, field.name, instr));
                     return tmp.items.len;
                 } else {
-                    return try archImpl.PseudoOpcode.appendInstructions(self, null, addr);
+                    return try archImpl.PseudoOpcode.appendInstructions(self, null, addrs);
                 }
             }
         }
@@ -151,6 +173,18 @@ pub const Instruction = union(Version) {
             }
         }
     };
+
+    pub fn init(opcode: Opcode, addrs: []usize) Instruction {
+        return switch (opcode) {
+            .v2 => |v| .{ .v2 = .{ .opcode = v, .address = if (addrs.len == 1) @intCast(addrs[0]) else 0 } },
+        };
+    }
+
+    pub inline fn write(self: Instruction, writer: anytype) !void {
+        return switch (self) {
+            .v2 => |v| v.write(writer),
+        };
+    }
 
     pub fn formatFor(self: Instruction, version: Version) std.fmt.Formatter(Formatted.func) {
         return .{

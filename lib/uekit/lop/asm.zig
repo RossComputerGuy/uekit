@@ -184,7 +184,6 @@ fn addDataSymbolForExpression(self: *Assembler, imported: *Import, expr: *Parser
                 if (imported.symbol(expr.literal.items) orelse try self.lookupSymbol(imported, expr.literal.items)) |sym| {
                     if (sym.* == .data) try self.addDataSymbol(&sym.data, messages);
                 } else {
-                    std.debug.print("{}\n", .{imported.symbols.items[imported.symbols.items.len - 1]});
                     return error.InvalidSymbol;
                 }
             }
@@ -213,8 +212,9 @@ fn addDataSymbol(self: *Assembler, sym: *Parser.Symbol.Data, messages: *std.Arra
 }
 
 pub fn lookupSymbol(self: *Assembler, imported: *Import, name: []const u8) !?*Parser.Symbol.Union {
-    const end = std.mem.indexOf(u8, name, ".") orelse name.len;
-    const end2 = std.mem.indexOf(u8, name, ".") orelse (name.len - 1);
+    const end = if (std.mem.indexOf(u8, name, ".")) |i| if (i > 0) i else name.len else name.len;
+    const end2 = if (std.mem.indexOf(u8, name, ".")) |i| if (i > 0) i else (name.len - 1) else (name.len - 1);
+
     if (imported.symbol(name[0..end])) |sym| {
         if (std.mem.indexOf(u8, name, ".") == null) return sym;
 
@@ -230,7 +230,7 @@ pub fn lookupSymbol(self: *Assembler, imported: *Import, name: []const u8) !?*Pa
                         defer self.imports.allocator.free(importPath);
 
                         if (self.lookupImportByPath(importPath)) |newImported| {
-                            return self.lookupSymbol(newImported, name[end2..]);
+                            return self.lookupSymbol(newImported, name[(end2 + 1)..]);
                         }
                     }
                     return null;
@@ -324,23 +324,210 @@ pub fn import(self: *Assembler, module: Module, path: []const u8, messages: *std
 pub const WriteOptions = struct {
     file: std.fs.File,
     address: usize = 0,
+    sectionOrder: []const []const u8 = &[_][]const u8{
+        "code",
+        "rodata",
+        "data",
+    },
 };
 
-pub fn writeBinary(self: *Assembler, options: WriteOptions) !SymbolTable {
-    _ = options;
+pub fn sections(self: *Assembler, address: usize, sectionOrder: []const []const u8) !std.StringHashMap(std.ArrayList(u8)) {
+    var sizes = std.StringHashMap(usize).init(self.imports.allocator);
+    defer sizes.deinit();
 
-    var symtbl = try SymbolTable.init(self.imports.allocator);
-    errdefer symtbl.deinit();
+    var symbols = std.StringHashMap(std.ArrayList(*Parser.Symbol.Data)).init(self.imports.allocator);
+    defer {
+        var iter = symbols.valueIterator();
+        while (iter.next()) |value| value.deinit();
+        symbols.deinit();
+    }
 
-    var codeEnd: usize = 0;
+    var offsets = std.StringHashMap(std.StringHashMap(usize)).init(self.imports.allocator);
+    defer {
+        var iter = offsets.iterator();
+        while (iter.next()) |entry| entry.value_ptr.deinit();
+        offsets.deinit();
+    }
+
+    var data = std.StringHashMap(std.ArrayList(u8)).init(self.imports.allocator);
+    errdefer {
+        var iter = data.valueIterator();
+        while (iter.next()) |value| value.deinit();
+        data.deinit();
+    }
+
+    var totalSize: usize = 0;
+
     for (self.symbols.items) |sym| {
-        if (std.mem.eql(u8, sym.section(), "code")) {
-            codeEnd += sym.size(self.version);
+        const sec = sym.section();
+        const value = sym.size(self.version);
+
+        totalSize += value;
+
+        if (sizes.getPtr(sec)) |size| {
+            size.* += value;
+        } else {
+            try sizes.put(sec, value);
+        }
+
+        if (symbols.getPtr(sec)) |syms| {
+            try syms.append(sym);
+        } else {
+            var syms = std.ArrayList(*Parser.Symbol.Data).init(self.imports.allocator);
+            try syms.append(sym);
+            try symbols.put(sec, syms);
         }
     }
 
-    std.debug.print("{}\n", .{codeEnd});
+    {
+        var offset: usize = 0;
+        for (sectionOrder) |sectionName| {
+            var section = symbols.getPtr(sectionName) orelse continue;
+            var sectionSizes = std.StringHashMap(usize).init(self.imports.allocator);
+            errdefer sectionSizes.deinit();
 
+            for (section.items, 0..) |sym, i| {
+                if (sym == self.entrypoint and section.items[0] != self.entrypoint) {
+                    try section.insert(0, section.swapRemove(i));
+                }
+            }
+
+            for (section.items) |sym| {
+                const imported = self.lookupImportByPath(sym.location.source.?) orelse return error.InvalidImport;
+                const importedName = try imported.name();
+                defer self.imports.allocator.free(importedName);
+
+                const fullname = try std.mem.join(self.imports.allocator, ".", &.{ importedName, sym.name.items });
+                errdefer self.imports.allocator.free(fullname);
+
+                const size = sym.size(self.version);
+                try sectionSizes.put(fullname, offset);
+                offset += size;
+            }
+
+            try offsets.put(sectionName, sectionSizes);
+        }
+    }
+
+    {
+        var offset: usize = 0;
+        for (sectionOrder) |sectionName| {
+            const section = symbols.get(sectionName) orelse continue;
+            const dataSize = sizes.get(sectionName) orelse return error.InvalidSize;
+
+            var dataList = try std.ArrayList(u8).initCapacity(self.imports.allocator, dataSize);
+            errdefer dataList.deinit();
+
+            for (section.items) |sym| {
+                const imported = self.lookupImportByPath(sym.location.source.?) orelse return error.InvalidImport;
+                const importedName = try imported.name();
+                defer self.imports.allocator.free(importedName);
+
+                for (sym.expressions.items) |expr| {
+                    const oldSize = dataList.items.len;
+                    switch (expr) {
+                        .unsignedNumber => |un| try dataList.writer().writeInt(u8, @intCast(un), self.version.endian()),
+                        .signedNumber => |sn| try dataList.writer().writeInt(i8, @intCast(sn), self.version.endian()),
+                        .string => |str| {
+                            var i: usize = 0;
+                            while (i < str.items.len) : (i += 1) {
+                                const ch = str.items[i];
+                                if (ch == '\\') {
+                                    try dataList.append(switch (str.items[i + 1]) {
+                                        't' => '\t',
+                                        'n' => '\n',
+                                        'r' => '\r',
+                                        else => return error.InvalidEscape,
+                                    });
+                                    i += 1;
+                                } else {
+                                    try dataList.append(ch);
+                                }
+                            }
+
+                            try dataList.append(0);
+                        },
+                        .instruction => |instr| {
+                            var instrs = std.ArrayList(arch.Instruction).init(self.imports.allocator);
+                            defer instrs.deinit();
+
+                            var addrs = std.ArrayList(usize).init(self.imports.allocator);
+                            defer addrs.deinit();
+
+                            if (instr.operands) |operands| {
+                                for (operands.items) |operand| {
+                                    switch (operand.*) {
+                                        .unsignedNumber => |un| try addrs.append(un),
+                                        .signedNumber => |sn| try addrs.append(@intCast(sn)),
+                                        .builtin => |bt| {
+                                            if (bt.method == .offset or bt.method == .ip) try addrs.append(try bt.eval(address + offset));
+                                        },
+                                        .literal => |literal| {
+                                            const name = try std.mem.join(self.imports.allocator, ".", &.{
+                                                importedName,
+                                                literal.items,
+                                            });
+                                            defer self.imports.allocator.free(name);
+                                            if (try self.symbol(name) orelse try self.lookupSymbol(imported, literal.items) orelse imported.symbol(literal.items)) |variable| {
+                                                switch (variable.*) {
+                                                    .constant => |constant| switch (constant.expr) {
+                                                        .unsignedNumber => |un| try addrs.append(un),
+                                                        .signedNumber => |sn| try addrs.append(@intCast(sn)),
+                                                        .builtin => |bt| {
+                                                            if (bt.method == .offset or bt.method == .ip) try addrs.append(try bt.eval(address + offset));
+                                                        },
+                                                        else => {},
+                                                    },
+                                                    .data => |varData| {
+                                                        const varOffset = offsets.get(varData.section()).?.get(name).?;
+                                                        try addrs.append(varOffset + address);
+                                                    },
+                                                }
+                                            } else return error.InvalidSymbol;
+                                        },
+                                        else => {},
+                                    }
+                                }
+                            }
+
+                            switch (instr.opcode) {
+                                .real => |op| try instrs.append(arch.Instruction.init(op, addrs.items)),
+                                .pseudo => |pseudo| _ = try pseudo.appendInstructions(self.version, &instrs, addrs.items),
+                            }
+
+                            for (instrs.items) |in| try in.write(dataList.writer());
+                        },
+                        else => {},
+                    }
+
+                    const newSize = dataList.items.len;
+                    const deltaSize = newSize - oldSize;
+
+                    offset += deltaSize;
+                }
+            }
+
+            try data.put(sectionName, dataList);
+        }
+    }
+    return data;
+}
+
+pub fn writeBinary(self: *Assembler, options: WriteOptions) !SymbolTable {
+    var symtbl = try SymbolTable.init(self.imports.allocator);
+    errdefer symtbl.deinit();
+
+    var data = try self.sections(options.address, options.sectionOrder);
+    defer {
+        var iter = data.valueIterator();
+        while (iter.next()) |value| value.deinit();
+        data.deinit();
+    }
+
+    for (options.sectionOrder) |sec| {
+        const secdata = data.get(sec) orelse continue;
+        try options.file.writeAll(secdata.items);
+    }
     return symtbl;
 }
 

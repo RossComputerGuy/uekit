@@ -6,7 +6,7 @@ _start:
 .loop:
   ldp
   cmp zero
-  bz %offset(%ip(), -1)
+  bz %ip()
   stl consts.TX
   inp
   jmp .loop

@@ -3,6 +3,17 @@ const ptk = @import("parser-toolkit");
 const Expression = @import("expr.zig").Expression;
 const Builtin = @This();
 
+const BasicExpr = union(enum) {
+    unsigned: usize,
+    signed: isize,
+
+    pub fn offset(a: BasicExpr, b: BasicExpr) !usize {
+        if (a == .unsigned and b == .signed) return @intCast(@as(isize, @intCast(a.unsigned)) + b.signed);
+        if (a == .unsigned and b == .unsigned) return a.unsigned + b.unsigned;
+        return error.Unrecognied;
+    }
+};
+
 pub const Method = enum {
     section,
     import,
@@ -33,4 +44,25 @@ params: std.ArrayList(Expression),
 pub fn deinit(self: Builtin) void {
     for (self.params.items) |param| param.deinit();
     self.params.deinit();
+}
+
+pub fn eval(self: Builtin, addr: usize) !usize {
+    if (self.method == .ip) return addr;
+    if (self.method != .offset) return error.InvalidBuiltin;
+
+    const base: BasicExpr = switch (self.params.items[0]) {
+        .unsignedNumber => |un| .{ .unsigned = un },
+        .signedNumber => |sn| .{ .signed = sn },
+        .builtin => |bt| .{ .unsigned = try bt.eval(addr) },
+        else => return error.InvalidBase,
+    };
+
+    const other: BasicExpr = switch (self.params.items[1]) {
+        .unsignedNumber => |un| .{ .unsigned = un },
+        .signedNumber => |sn| .{ .signed = sn },
+        .builtin => |bt| .{ .unsigned = try bt.eval(addr) },
+        else => return error.InvalidBase,
+    };
+
+    return try base.offset(other);
 }
