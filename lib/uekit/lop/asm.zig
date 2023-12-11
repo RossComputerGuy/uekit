@@ -331,7 +331,7 @@ pub const WriteOptions = struct {
     },
 };
 
-pub fn sections(self: *Assembler, address: usize, sectionOrder: []const []const u8) !std.StringHashMap(std.ArrayList(u8)) {
+pub fn sections(self: *Assembler, address: usize, sectionOrder: []const []const u8, symtbl: ?*SymbolTable) !std.StringHashMap(std.ArrayList(u8)) {
     var sizes = std.StringHashMap(usize).init(self.imports.allocator);
     defer sizes.deinit();
 
@@ -402,6 +402,13 @@ pub fn sections(self: *Assembler, address: usize, sectionOrder: []const []const 
 
                 const size = sym.size(self.version);
                 try sectionSizes.put(fullname, offset);
+
+                if (symtbl) |tbl| try tbl.list.append(.{
+                    .address = address + offset,
+                    .name = fullname,
+                    .section = sectionName,
+                    .location = sym.location,
+                });
                 offset += size;
             }
 
@@ -517,7 +524,7 @@ pub fn writeBinary(self: *Assembler, options: WriteOptions) !SymbolTable {
     var symtbl = try SymbolTable.init(self.imports.allocator);
     errdefer symtbl.deinit();
 
-    var data = try self.sections(options.address, options.sectionOrder);
+    var data = try self.sections(options.address, options.sectionOrder, &symtbl);
     defer {
         var iter = data.valueIterator();
         while (iter.next()) |value| value.deinit();

@@ -54,4 +54,10 @@ pub fn main() !void {
         .file = file,
     }, res.args.@"output-format" orelse .binary);
     defer symtbl.deinit();
+
+    if (res.args.sym) |symtblPath| {
+        const symtblFile = try std.fs.createFileAbsolute(symtblPath, .{});
+        defer symtblFile.close();
+        try std.json.stringify(symtbl.list.items, .{}, symtblFile.writer());
+    }
 }

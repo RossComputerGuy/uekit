@@ -1,10 +1,18 @@
 const std = @import("std");
+const ptk = @import("parser-toolkit");
 const Self = @This();
 
 pub const Entry = struct {
     address: usize,
-    name: std.ArrayList(u8),
-    section: std.ArrayList(u8),
+    name: []const u8,
+    section: []const u8,
+    location: ptk.Location,
+
+    pub fn format(self: Entry, comptime _: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = options;
+        try writer.writeAll(@typeName(Entry));
+        try writer.print("{{ .address = 0x{x}, .name = {s}, .section = {s}, .location = {s} }}", .{ self.address, self.name, self.section, self.location });
+    }
 };
 
 list: std.ArrayList(Entry),
@@ -26,7 +34,7 @@ pub fn at(self: Self, addr: usize) ?*Entry {
 
 pub fn of(self: Self, name: []const u8) ?*Entry {
     for (self.list.items) |*entry| {
-        if (std.mem.eql(u8, name, entry.name.items)) return entry;
+        if (std.mem.eql(u8, name, entry.name)) return entry;
     }
     return null;
 }
