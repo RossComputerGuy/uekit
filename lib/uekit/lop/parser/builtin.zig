@@ -19,6 +19,7 @@ pub const Method = enum {
     import,
     offset,
     ip,
+    stack,
 
     pub fn parse(in: []const u8) ?Method {
         inline for (@typeInfo(Method).Enum.fields) |field| {
@@ -32,7 +33,7 @@ pub const Method = enum {
         return switch (self) {
             .ip => 0,
             .section, .import => 1,
-            .offset => 2,
+            .offset, .stack => 2,
         };
     }
 };

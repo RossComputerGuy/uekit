@@ -328,6 +328,7 @@ pub const WriteOptions = struct {
         "code",
         "rodata",
         "data",
+        "bss",
     },
 };
 
@@ -501,10 +502,20 @@ pub fn sections(self: *Assembler, address: usize, sectionOrder: []const []const 
 
                             switch (instr.opcode) {
                                 .real => |op| try instrs.append(arch.Instruction.init(op, addrs.items)),
-                                .pseudo => |pseudo| _ = try pseudo.appendInstructions(self.version, &instrs, addrs.items),
+                                .pseudo => |pseudo| _ = try pseudo.appendInstructions(self.version, &instrs, addrs.items, symtbl),
                             }
 
                             for (instrs.items) |in| try in.write(dataList.writer());
+                        },
+                        .builtin => |builtin| switch (builtin.method) {
+                            .stack => {
+                                try dataList.append(@intCast(builtin.params.items[0].unsignedNumber));
+                                try dataList.append(0);
+
+                                var i: usize = 0;
+                                while (i < builtin.params.items[0].unsignedNumber) : (i += 1) try dataList.append(0);
+                            },
+                            else => {},
                         },
                         else => {},
                     }

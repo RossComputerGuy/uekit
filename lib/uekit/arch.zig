@@ -114,7 +114,7 @@ pub const PseudoOpcode = enum {
         };
     }
 
-    pub fn appendInstructions(self: PseudoOpcode, version: Version, instrs: ?*std.ArrayList(Instruction), addrs: []usize) !usize {
+    pub fn appendInstructions(self: PseudoOpcode, version: Version, instrs: ?*std.ArrayList(Instruction), addrs: []usize, symtbl: ?*lop.SymbolTable) !usize {
         inline for (@typeInfo(Version).Enum.fields) |field| {
             const fieldValue: Version = @enumFromInt(field.value);
             if (version == fieldValue) {
@@ -124,13 +124,13 @@ pub const PseudoOpcode = enum {
                     var tmp = std.ArrayList(archImpl.Instruction).init(list.allocator);
                     defer tmp.deinit();
 
-                    const count = try archImpl.PseudoOpcode.appendInstructions(self, &tmp, addrs);
+                    const count = try archImpl.PseudoOpcode.appendInstructions(self, &tmp, addrs, symtbl);
                     assert(count == tmp.items.len);
 
                     for (tmp.items) |instr| try list.append(@unionInit(Instruction, field.name, instr));
                     return tmp.items.len;
                 } else {
-                    return try archImpl.PseudoOpcode.appendInstructions(self, null, addrs);
+                    return try archImpl.PseudoOpcode.appendInstructions(self, null, addrs, symtbl);
                 }
             }
         }

@@ -85,7 +85,8 @@ pub const endian = std.builtin.Endian.big;
 pub const clockrate: usize = 5_000_000_000;
 
 pub const PseudoOpcode = struct {
-    pub fn appendInstructions(self: toplevelArch.PseudoOpcode, instrs: ?*std.ArrayList(Instruction), addrs: []usize) !usize {
+    pub fn appendInstructions(self: toplevelArch.PseudoOpcode, instrs: ?*std.ArrayList(Instruction), addrs: []usize, symtbl: ?*lop.SymbolTable) !usize {
+        _ = symtbl;
         switch (self) {
             .jmp => {
                 if (instrs) |list| {

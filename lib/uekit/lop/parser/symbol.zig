@@ -69,10 +69,13 @@ pub const Data = struct {
             value += switch (expr) {
                 .instruction => |instr| @as(usize, switch (instr.opcode) {
                     .real => 1,
-                    .pseudo => |pseudo| pseudo.appendInstructions(version, null, &.{}) catch @panic("Expected no errors"),
+                    .pseudo => |pseudo| pseudo.appendInstructions(version, null, &.{}, null) catch @panic("Expected no errors"),
                 }) * version.instructionSize(),
                 .literal => 0,
-                .builtin => 0,
+                .builtin => |builtin| switch (builtin.method) {
+                    .stack => builtin.params.items[0].unsignedNumber + 2,
+                    else => 0,
+                },
                 .unsignedNumber, .signedNumber => 1,
                 .string => |str| str.items.len,
             };
