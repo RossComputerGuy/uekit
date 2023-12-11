@@ -20,6 +20,17 @@ pub const Version = enum {
         unreachable;
     }
 
+    pub fn maxAddress(self: Version) usize {
+        inline for (@typeInfo(Version).Enum.fields) |field| {
+            const fieldValue: Version = @enumFromInt(field.value);
+            if (self == fieldValue) {
+                const archImpl = @field(versions, field.name);
+                return archImpl.maxAddress;
+            }
+        }
+        unreachable;
+    }
+
     pub fn addressBits(self: Version) usize {
         inline for (@typeInfo(Version).Enum.fields) |field| {
             const fieldValue: Version = @enumFromInt(field.value);

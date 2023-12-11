@@ -413,6 +413,8 @@ pub fn sections(self: *Assembler, address: usize, sectionOrder: []const []const 
                     .location = sym.location,
                 });
                 offset += size;
+
+                if (offset > self.version.maxAddress()) return error.OutOfMemory;
             }
 
             try offsets.put(sectionName, sectionSizes);
