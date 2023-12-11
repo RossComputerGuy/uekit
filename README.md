@@ -6,3 +6,4 @@ Tools and code for Usagi Electric's tube computers.
 
 - `dwarf`: CPU emulator
 - `hare`: dissassembler
+- `lop`: assembler
