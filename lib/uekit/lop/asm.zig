@@ -405,7 +405,9 @@ pub fn sections(self: *Assembler, address: usize, sectionOrder: []const []const 
 
                 if (symtbl) |tbl| try tbl.list.append(.{
                     .address = address + offset,
+                    .size = size,
                     .name = fullname,
+                    .kind = sym.kind(),
                     .section = sectionName,
                     .location = sym.location,
                 });

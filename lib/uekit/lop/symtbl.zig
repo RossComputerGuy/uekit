@@ -1,9 +1,12 @@
 const std = @import("std");
 const ptk = @import("parser-toolkit");
+const Parser = @import("parser.zig");
 const Self = @This();
 
 pub const Entry = struct {
     address: usize,
+    size: usize,
+    kind: Parser.Symbol.Data.Kind,
     name: []const u8,
     section: []const u8,
     location: ptk.Location,
@@ -11,7 +14,14 @@ pub const Entry = struct {
     pub fn format(self: Entry, comptime _: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
         try writer.writeAll(@typeName(Entry));
-        try writer.print("{{ .address = 0x{x}, .name = {s}, .section = {s}, .location = {s} }}", .{ self.address, self.name, self.section, self.location });
+        try writer.print("{{ .address = 0x{x}, .size = {}, .kind = {s}, .name = {s}, .section = {s}, .location = {s} }}", .{
+            self.address,
+            std.fmt.fmtIntSizeBin(self.size),
+            @tagName(self.kind),
+            self.name,
+            self.section,
+            self.location,
+        });
     }
 };
 

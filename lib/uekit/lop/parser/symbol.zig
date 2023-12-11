@@ -82,11 +82,15 @@ pub const Data = struct {
 
     pub fn kind(self: Data) Kind {
         var icount: usize = 0;
+        var count: usize = 0;
         for (self.expressions.items) |expr| {
-            if (expr == .instruction) icount += 1;
+            if (expr == .instruction) {
+                icount += 1;
+                count += 1;
+            } else if (expr != .builtin) count += 1;
         }
 
-        return if (icount == self.expressions.items.len) .code else if (icount == 0 and self.expressions.items.len > 0) .value else .mixed;
+        return if (icount == count) .code else if (icount == 0 and count > 0) .value else .mixed;
     }
 
     pub fn section(self: Data) []const u8 {
