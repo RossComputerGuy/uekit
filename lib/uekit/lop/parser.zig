@@ -197,8 +197,17 @@ pub fn parse(options: Options, messages: *std.ArrayList(Message), expression: []
 
         try syms.append(sym);
 
-        if (sym == .data and std.mem.startsWith(u8, ".", sym.name().items) and hasNext) {
+        if (sym == .data and std.mem.startsWith(u8, sym.name().items, ".") and hasNext) {
             syms.items[syms.items.len - 1].data.prev = try syms.items[syms.items.len - 2].data.name.clone();
+
+            const oldName = try syms.items[syms.items.len - 1].data.name.clone();
+            defer oldName.deinit();
+
+            syms.items[syms.items.len - 1].data.name.clearAndFree();
+            try syms.items[syms.items.len - 1].data.name.appendSlice(syms.items[syms.items.len - 1].data.prev.?.items);
+            try syms.items[syms.items.len - 1].data.name.appendSlice(oldName.items);
+
+            syms.items[syms.items.len - 2].data.next = try syms.items[syms.items.len - 1].data.name.clone();
         }
     }
     return syms;

@@ -81,11 +81,14 @@ pub const Options = struct {
     allocator: Allocator,
     version: arch.Version,
     entrypoint: []const u8 = "root._start",
+    stack: ?[]const u8,
 };
 
 version: arch.Version,
 imports: std.ArrayList(Import),
 symbols: std.ArrayList(*Parser.Symbol.Data),
+stack: ?*Parser.Symbol.Data,
+stackName: ?[]const u8,
 entrypoint: *Parser.Symbol.Data,
 
 pub fn create(options: Options, modules: []const Module, root: []const u8, messages: *std.ArrayList(Parser.Message)) !*Assembler {
@@ -97,6 +100,8 @@ pub fn create(options: Options, modules: []const Module, root: []const u8, messa
         .imports = std.ArrayList(Import).init(options.allocator),
         .symbols = std.ArrayList(*Parser.Symbol.Data).init(options.allocator),
         .entrypoint = undefined,
+        .stack = null,
+        .stackName = null,
     };
     errdefer self.deinit();
 
@@ -122,6 +127,26 @@ pub fn create(options: Options, modules: []const Module, root: []const u8, messa
             .line = source.line,
             .column = source.column,
         });
+    }
+
+    if (options.stack) |stack| {
+        const source = @src();
+        if (try self.symbol(stack)) |stackSym| {
+            if (stackSym.* != .data) {
+                try messages.append(try Parser.Message.init(options.allocator, stackSym.location(), error.InvalidStack, "Stack must be a data symbol", .{}));
+                return error.InvalidStack;
+            }
+
+            self.stack = &stackSym.data;
+            self.stackName = stack;
+        } else {
+            try messages.append(try Parser.Message.init(options.allocator, .{
+                .source = source.file,
+                .line = source.line,
+                .column = source.column,
+            }, error.InvalidStack, "Stack does not exist", .{}));
+            return error.InvalidStack;
+        }
     }
 
     {
@@ -153,13 +178,12 @@ const SymbolError = error{
     InvalidPath,
     InvalidSymbol,
     InvalidImport,
+    MissingStack,
 } || Allocator.Error;
 
 fn hasDataSymbol(self: *Assembler, sym: *Parser.Symbol.Data) bool {
     for (self.symbols.items) |s| {
-        if ((sym.location.source == null and s.location.source != null) or (sym.location.source != null and s.location.source == null)) continue;
-
-        if (std.mem.eql(u8, sym.location.source.?, s.location.source.?) and sym.location.line == s.location.line and sym.location.column == s.location.column) {
+        if (s == sym) {
             return true;
         }
     }
@@ -170,6 +194,12 @@ fn addDataSymbolForExpression(self: *Assembler, imported: *Import, expr: *Parser
     switch (mode) {
         .symbol => switch (expr.*) {
             .instruction => |instr| {
+                if (instr.opcode.needsStack()) {
+                    if (self.stack) |stack| {
+                        try self.addDataSymbol(stack, messages);
+                    } else return error.MissingStack;
+                }
+
                 if (instr.operands) |operands| {
                     for (operands.items) |operand| {
                         try self.addDataSymbolForExpression(imported, operand, .normal, messages);
@@ -192,7 +222,9 @@ fn addDataSymbolForExpression(self: *Assembler, imported: *Import, expr: *Parser
 }
 
 fn addDataSymbol(self: *Assembler, sym: *Parser.Symbol.Data, messages: *std.ArrayList(Parser.Message)) SymbolError!void {
-    if (self.hasDataSymbol(sym)) return;
+    if (self.hasDataSymbol(sym)) {
+        return;
+    }
 
     const imported = self.lookupImportByPath(sym.location.source.?) orelse return error.InvalidImport;
 
@@ -402,9 +434,10 @@ pub fn sections(self: *Assembler, address: usize, sectionOrder: []const []const 
                 errdefer self.imports.allocator.free(fullname);
 
                 const size = sym.size(self.version);
+                if (sectionSizes.contains(fullname)) continue;
                 try sectionSizes.put(fullname, offset);
 
-                if (symtbl) |tbl| try tbl.list.append(.{
+                if (symtbl) |tbl| try tbl.append(.{
                     .address = address + offset,
                     .size = size,
                     .name = fullname,
@@ -434,6 +467,11 @@ pub fn sections(self: *Assembler, address: usize, sectionOrder: []const []const 
                 const imported = self.lookupImportByPath(sym.location.source.?) orelse return error.InvalidImport;
                 const importedName = try imported.name();
                 defer self.imports.allocator.free(importedName);
+
+                const fullname = try std.mem.join(self.imports.allocator, ".", &.{ importedName, sym.name.items });
+                errdefer self.imports.allocator.free(fullname);
+
+                if (offsets.get(sectionName).?.get(fullname).? != offset) continue;
 
                 for (sym.expressions.items) |expr| {
                     const oldSize = dataList.items.len;
@@ -480,6 +518,7 @@ pub fn sections(self: *Assembler, address: usize, sectionOrder: []const []const 
                                                 literal.items,
                                             });
                                             defer self.imports.allocator.free(name);
+
                                             if (try self.symbol(name) orelse try self.lookupSymbol(imported, literal.items) orelse imported.symbol(literal.items)) |variable| {
                                                 switch (variable.*) {
                                                     .constant => |constant| switch (constant.expr) {
@@ -504,7 +543,7 @@ pub fn sections(self: *Assembler, address: usize, sectionOrder: []const []const 
 
                             switch (instr.opcode) {
                                 .real => |op| try instrs.append(arch.Instruction.init(op, addrs.items)),
-                                .pseudo => |pseudo| _ = try pseudo.appendInstructions(self.version, &instrs, addrs.items, symtbl),
+                                .pseudo => |pseudo| _ = try pseudo.appendInstructions(self.version, &instrs, addrs.items, symtbl, offset + address, self.stackName),
                             }
 
                             for (instrs.items) |in| try in.write(dataList.writer());

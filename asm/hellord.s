@@ -9,7 +9,7 @@ _start:
   bz %ip()
   stl consts.TX
   inp
-  jmp .loop
+  jmp _start.loop
 
 hellord:
   %section("rodata")

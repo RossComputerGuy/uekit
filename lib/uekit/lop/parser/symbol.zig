@@ -69,7 +69,7 @@ pub const Data = struct {
             value += switch (expr) {
                 .instruction => |instr| @as(usize, switch (instr.opcode) {
                     .real => 1,
-                    .pseudo => |pseudo| pseudo.appendInstructions(version, null, &.{}, null) catch @panic("Expected no errors"),
+                    .pseudo => |pseudo| pseudo.appendInstructions(version, null, &.{}, null, 0, null) catch @panic("Expected no errors"),
                 }) * version.instructionSize(),
                 .literal => 0,
                 .builtin => |builtin| switch (builtin.method) {

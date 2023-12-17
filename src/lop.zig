@@ -14,6 +14,7 @@ pub fn main() !void {
         \\-f, --output-format <ofmt> Sets the output format.
         \\-s, --sym <path>           Sets the symbol table output path.
         \\-e, --entrypoint <str>     Sets the entrypoint of the executable.
+        \\-t, --stack <str>          Sets the symbol to use for the stack.
         \\<path>                     Path to the root assembly file.
         \\
     );
@@ -37,6 +38,7 @@ pub fn main() !void {
         .version = res.args.version orelse .v2,
         .allocator = common.allocator,
         .entrypoint = res.args.entrypoint orelse "root._start",
+        .stack = res.args.stack,
     }, res.args.module, res.positionals[0], &messages) catch |err| {
         try stderr.print("Errors:\n", .{});
         for (messages.items) |msg| {

@@ -35,6 +35,14 @@ pub inline fn deinit(self: Self) void {
     return self.list.deinit();
 }
 
+pub fn append(self: *Self, entry: Entry) !void {
+    for (self.list.items) |e| {
+        if (std.mem.eql(u8, e.name, entry.name)) return;
+    }
+
+    try self.list.append(entry);
+}
+
 pub fn at(self: Self, addr: usize) ?*Entry {
     for (self.list.items) |*entry| {
         if (entry.address == addr) return entry;

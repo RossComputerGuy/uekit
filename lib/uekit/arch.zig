@@ -118,6 +118,13 @@ pub const PseudoOpcode = enum {
         return null;
     }
 
+    pub fn needsStack(self: PseudoOpcode) bool {
+        return switch (self) {
+            .call, .ret => true,
+            else => false,
+        };
+    }
+
     pub fn operandCount(self: PseudoOpcode) usize {
         return switch (self) {
             .ret => 0,
@@ -125,7 +132,7 @@ pub const PseudoOpcode = enum {
         };
     }
 
-    pub fn appendInstructions(self: PseudoOpcode, version: Version, instrs: ?*std.ArrayList(Instruction), addrs: []usize, symtbl: ?*lop.SymbolTable) !usize {
+    pub fn appendInstructions(self: PseudoOpcode, version: Version, instrs: ?*std.ArrayList(Instruction), addrs: []usize, symtbl: ?*lop.SymbolTable, addr: usize, stack: ?[]const u8) !usize {
         inline for (@typeInfo(Version).Enum.fields) |field| {
             const fieldValue: Version = @enumFromInt(field.value);
             if (version == fieldValue) {
@@ -135,13 +142,13 @@ pub const PseudoOpcode = enum {
                     var tmp = std.ArrayList(archImpl.Instruction).init(list.allocator);
                     defer tmp.deinit();
 
-                    const count = try archImpl.PseudoOpcode.appendInstructions(self, &tmp, addrs, symtbl);
+                    const count = try archImpl.PseudoOpcode.appendInstructions(self, &tmp, addrs, symtbl, addr, stack);
                     assert(count == tmp.items.len);
 
                     for (tmp.items) |instr| try list.append(@unionInit(Instruction, field.name, instr));
                     return tmp.items.len;
                 } else {
-                    return try archImpl.PseudoOpcode.appendInstructions(self, null, addrs, symtbl);
+                    return try archImpl.PseudoOpcode.appendInstructions(self, null, addrs, symtbl, addr, stack);
                 }
             }
         }
@@ -157,6 +164,13 @@ pub const FullOpcode = union(enum) {
         if (PseudoOpcode.parse(in)) |pseudo| return .{ .pseudo = pseudo };
         if (Opcode.parse(version, in)) |real| return .{ .real = real };
         return null;
+    }
+
+    pub fn needsStack(self: FullOpcode) bool {
+        return switch (self) {
+            .real => false,
+            .pseudo => |pseudo| pseudo.needsStack(),
+        };
     }
 
     pub fn operandCount(self: FullOpcode) usize {
