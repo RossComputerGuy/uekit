@@ -42,7 +42,7 @@ pub const Message = struct {
                     var value: []const u8 = "";
                     if (expectedList.len > 1) value = value ++ "s";
                     value = value ++ " ";
-                    inline for (expectedList, 0..) |expectedToken, i| {
+                    for (expectedList, 0..) |expectedToken, i| {
                         value = value ++ @tagName(expectedToken);
                         if ((i + 1) < expectedList.len) value = value ++ ", ";
                     }
@@ -60,7 +60,7 @@ pub const Message = struct {
                     var value: []const u8 = "";
                     if (expectedList.len > 1) value = value ++ "s";
                     value = value ++ " ";
-                    inline for (expectedList, 0..) |expectedToken, i| {
+                    for (expectedList, 0..) |expectedToken, i| {
                         value = value ++ @tagName(expectedToken);
                         if ((i + 1) < expectedList.len) value = value ++ ", ";
                     }
