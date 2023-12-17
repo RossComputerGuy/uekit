@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: goto-bus-stop/setup-zig@v2
-      - run: zig build Dtarget=${{matrix.target}} -Doptimize=ReleaseSmall
+      - run: zig build -Dtarget=${{matrix.target}} -Doptimize=ReleaseSmall
       - uses: actions/upload-artifact@v4
         with:
           name: zig-out-${{matrix.target}}
@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: goto-bus-stop/setup-zig@v2
-      - run: zig build Dtarget=${{matrix.target}} -Doptimize=ReleaseSmall
+      - run: zig build -Dtarget=${{matrix.target}} -Doptimize=ReleaseSmall
       - uses: actions/upload-artifact@v4
         with:
           name: zig-out-${{matrix.target}}
@@ -41,7 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: goto-bus-stop/setup-zig@v2
-      - run: zig build Dtarget=${{matrix.target}} -Doptimize=ReleaseSmall
+      - run: zig build -Dtarget=${{matrix.target}} -Doptimize=ReleaseSmall
       - uses: actions/upload-artifact@v4
         with:
           name: zig-out-${{matrix.target}}
